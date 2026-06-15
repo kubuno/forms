@@ -1,0 +1,35 @@
+[module]
+id            = "forms"
+display_name  = "Forms"
+version       = "0.1.0"
+description   = "Formulaires et sondages — création, collecte de réponses, analyses"
+author        = "Kubuno Contributors"
+license       = "AGPL-3.0"
+homepage_url  = "https://github.com/kubuno/kubuno"
+runtime       = "rust"
+settings_path = "/forms/settings"
+
+[process]
+entrypoint = "kubuno-forms"
+args       = []
+
+[server]
+host = "127.0.0.1"
+port = 3108
+
+[routes]
+patterns = [
+    { method = "*", path = "/*" },
+]
+
+[[sidebar_items]]
+id       = "forms"
+label    = "Formulaires"
+icon     = "ClipboardList"
+path     = "/forms"
+position = 45
+section  = "main"
+
+[events]
+subscribed = ["UserDeleted"]
+publishes  = ["FormResponseReceived", "FormCreated"]

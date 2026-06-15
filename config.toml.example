@@ -1,0 +1,44 @@
+# ─── Kubuno Forms — Configuration ────────────────────────────────────────────
+# Copiez ce fichier en config.toml et adaptez les valeurs.
+# Les variables d'environnement préfixées KFRM__ surchargent ce fichier.
+# Exemple : KFRM__SERVER__PORT=3108
+
+[server]
+host = "127.0.0.1"
+port = 3108
+
+[core]
+# URL du core Kubuno (pour l'enregistrement du module)
+url             = "http://127.0.0.1:8080"
+# Secret partagé — doit correspondre à server.internal_secret dans le core
+internal_secret = "change_me"
+
+# ── Base de données ───────────────────────────────────────────────────────────
+# Les paramètres de connexion sont injectés par le superviseur Kubuno via
+# KUBUNO_DB_HOST / KUBUNO_DB_PORT / KUBUNO_DB_USER / KUBUNO_DB_PASSWORD / KUBUNO_DB_NAME.
+
+[storage]
+# Stockage des fichiers uploadés via les formulaires
+local_path = "/var/lib/kubuno/modules/forms/data"
+temp_path  = "/var/lib/kubuno/modules/forms/temp"
+# Développement local (décommenter) :
+# local_path = "./data/forms"
+# temp_path  = "./data/temp"
+
+[forms]
+# Nombre maximum de questions par formulaire
+max_questions            = 200
+# Taille max d'un fichier uploadé via formulaire (MB)
+max_file_upload_mb       = 10
+# Durée de conservation des réponses (jours, 0 = illimitée)
+response_retention_days  = 0
+# Délai minimum entre deux soumissions depuis la même IP (secondes)
+submission_cooldown_secs = 10
+
+[notifications]
+# Notifier le créateur par email à chaque nouvelle réponse
+email_on_response = false
+
+[logging]
+level  = "info"
+format = "pretty"
