@@ -43,6 +43,9 @@ pub async fn csv(
     let mut wtr = csv::Writer::from_writer(vec![]);
 
     // Header row
+    // Include the quiz score columns only when at least one response was graded.
+    let has_quiz = responses.iter().any(|r| r.max_score.is_some());
+
     let mut headers = vec![
         "ID Réponse".to_string(),
         "Date de soumission".to_string(),
@@ -50,6 +53,10 @@ pub async fn csv(
         "Nom répondant".to_string(),
         "Durée (s)".to_string(),
     ];
+    if has_quiz {
+        headers.push("Score".to_string());
+        headers.push("Score max".to_string());
+    }
     for q in &questions {
         headers.push(q.title.clone());
     }
@@ -71,6 +78,10 @@ pub async fn csv(
             resp.respondent_name.clone().unwrap_or_default(),
             resp.fill_duration_secs.map(|s| s.to_string()).unwrap_or_default(),
         ];
+        if has_quiz {
+            row.push(resp.score.map(|s| s.to_string()).unwrap_or_default());
+            row.push(resp.max_score.map(|s| s.to_string()).unwrap_or_default());
+        }
 
         for q in &questions {
             let ans_val = answers.iter()
