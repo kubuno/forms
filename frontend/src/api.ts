@@ -3,12 +3,17 @@ import { api } from '@kubuno/sdk'
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface FormTheme {
-  primaryColor:    string
-  headerColor:     string
-  fontFamily:      string
-  backgroundImage: string | null
-  style:           'default' | 'classic' | 'playful'
+  primaryColor:     string
+  headerColor:      string
+  fontFamily:       string
+  backgroundImage:  string | null
+  backgroundColor?: string | null
+  font?:            string
+  style:            'default' | 'classic' | 'playful'
 }
+
+/** How the public form is presented to respondents. */
+export type DisplayMode = 'classic' | 'one_at_a_time'
 
 export interface FormSettings {
   collectEmail:          boolean
@@ -23,6 +28,10 @@ export interface FormSettings {
   closeDate:             string | null
   maxResponses:          number | null
   webhookUrl:            string | null
+  // v2
+  displayMode?:          DisplayMode
+  quizMode?:             boolean
+  showResultImmediately?: boolean
 }
 
 export interface FormSummary {
@@ -48,10 +57,14 @@ export interface Form extends FormSummary {
 export type QuestionType =
   | 'short_text' | 'long_text'
   | 'multiple_choice' | 'checkbox' | 'dropdown'
-  | 'linear_scale' | 'rating'
+  | 'linear_scale' | 'rating' | 'opinion_scale'
+  | 'yes_no'
+  | 'email' | 'number' | 'phone' | 'url'
   | 'date' | 'time'
-  | 'file_upload' | 'image' | 'video'
+  | 'ranking'
+  | 'file_upload' | 'signature' | 'image' | 'video'
   | 'grid_radio' | 'grid_checkbox'
+  | 'statement' | 'welcome_screen' | 'thank_you_screen'
   | 'section'
 
 export interface Question {
@@ -113,16 +126,81 @@ export interface QuestionStat {
   texts?:        string[]
 }
 
+export type RuleOperator =
+  | 'equals' | 'not_equals' | 'contains' | 'not_contains'
+  | 'starts_with' | 'ends_with'
+  | 'greater_than' | 'greater_or_equal' | 'less_than' | 'less_or_equal'
+  | 'is_empty' | 'is_not_empty'
+
+export type RuleAction =
+  | 'show_section' | 'hide_section' | 'go_to_section' | 'skip_to_question'
+  | 'jump_to_thankyou' | 'submit_form'
+
 export interface ConditionalRule {
   id:                  string
   form_id:             string
   position:            number
   trigger_question_id: string
-  operator:            string
+  operator:            RuleOperator
   compare_value:       unknown
-  action:              string
+  action:              RuleAction
   target_section_id:   string | null
   created_at:          string
+}
+
+/** Per-question quiz outcome returned by the public submit endpoint. */
+export interface QuizDetail {
+  question_id:   string
+  is_correct:    boolean
+  points_earned: number
+  points:        number
+  feedback:      string | null
+}
+
+export interface QuizResult {
+  score:     number
+  max_score: number
+  details:   QuizDetail[]
+}
+
+/** File descriptor stored as the answer value for file_upload questions. */
+export interface UploadedFile {
+  fileId:      string
+  name:        string
+  size:        number
+  contentType: string | null
+}
+
+/** Question shape returned by the public endpoint (no quiz answers leaked). */
+export interface PublicQuestion {
+  id:            string
+  position:      number
+  question_type: QuestionType
+  title:         string
+  description:   string | null
+  required:      boolean
+  image_path:    string | null
+  options:       Record<string, unknown>
+}
+
+export interface PublicForm {
+  id:          string
+  title:       string
+  description: string | null
+  theme:       FormTheme
+  header_image_path: string | null
+  settings: {
+    collectEmail:          boolean
+    showProgressBar:       boolean
+    confirmationMessage:   string
+    requireSignIn:         boolean
+    displayMode:           DisplayMode | null
+    quizMode:              boolean | null
+    showResultImmediately: boolean | null
+    shuffleQuestions:      boolean | null
+  }
+  questions: PublicQuestion[]
+  rules:     ConditionalRule[]
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -180,12 +258,16 @@ export const formsApi = {
 
   // Export
   exportCsvUrl: (formId: string) => `/api/v1/forms/forms/${formId}/export/csv`,
+  uploadDownloadUrl: (formId: string, fileId: string) =>
+    `/api/v1/forms/forms/${formId}/uploads/${fileId}`,
 
   // Logique conditionnelle
   listRules:   (formId: string) =>
     api.get<{ rules: ConditionalRule[] }>(`/forms/forms/${formId}/rules`),
   createRule:  (formId: string, data: Omit<ConditionalRule, 'id' | 'form_id' | 'position' | 'created_at'>) =>
     api.post<{ rule: ConditionalRule }>(`/forms/forms/${formId}/rules`, data),
+  updateRule:  (formId: string, rid: string, data: Partial<Pick<ConditionalRule, 'operator' | 'compare_value' | 'action' | 'target_section_id'>>) =>
+    api.patch<{ rule: ConditionalRule }>(`/forms/forms/${formId}/rules/${rid}`, data),
   deleteRule:  (formId: string, rid: string) =>
     api.delete<{ ok: boolean }>(`/forms/forms/${formId}/rules/${rid}`),
 }
@@ -202,5 +284,10 @@ export const publicFormsApi = {
     respondent_name?: string
     fill_duration_secs?: number
   }) =>
-    api.post<{ ok: boolean; response_id: string; confirmation: string }>(`/forms/public/${token}/submit`, data),
+    api.post<{ ok: boolean; response_id: string; confirmation: string; result: QuizResult | null }>(`/forms/public/${token}/submit`, data),
+  upload: (token: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<UploadedFile>(`/forms/public/${token}/upload`, fd)
+  },
 }
