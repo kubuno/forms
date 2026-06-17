@@ -7,7 +7,7 @@ use axum::{
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
-    handlers::{analytics, export, forms, health, public, questions, responses, rules},
+    handlers::{analytics, export, forms, health, public, questions, responses, rules, uploads},
     middleware::require_auth,
     state::AppState,
 };
@@ -37,6 +37,8 @@ pub fn build(state: AppState) -> Router {
         .route("/forms/:id/analytics/questions",              get(analytics::question_stats))
         // Export
         .route("/forms/:id/export/csv",                       get(export::csv))
+        // Fichiers téléversés (téléchargement réservé au propriétaire)
+        .route("/forms/:id/uploads/:file_id",                 get(uploads::download))
         // Logique conditionnelle
         .route("/forms/:id/rules",                            get(rules::list).post(rules::create))
         .route("/forms/:id/rules/:rid",                       patch(rules::update).delete(rules::delete))
@@ -48,7 +50,8 @@ pub fn build(state: AppState) -> Router {
         .route("/public/:token",        get(public::get_form))
         .route("/public/:token/submit", post(public::submit))
         .route("/public/:token/status", get(public::status))
-        .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
+        .route("/public/:token/upload", post(uploads::upload))
+        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state.clone());
 
     // Health check
