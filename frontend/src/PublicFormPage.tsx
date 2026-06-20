@@ -192,7 +192,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
     <FullScreen bg={bg} font={form.theme.fontFamily}>
       {/* Progress bar */}
       {form.settings.showProgressBar !== false && (
-        <div className="fixed top-0 left-0 right-0 h-1.5 bg-black/5 z-20">
+        <div className="fixed top-0 left-0 right-0 h-1.5 bg-black/5 z-20 no-print">
           <div className="h-full transition-all duration-300" style={{ width: `${progress}%`, backgroundColor: color }} />
         </div>
       )}
@@ -250,7 +250,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
       </div>
 
       {/* Up/Down navigation */}
-      <div className="fixed bottom-5 right-5 flex flex-col rounded-lg overflow-hidden shadow-lg">
+      <div className="fixed bottom-5 right-5 flex flex-col rounded-lg overflow-hidden shadow-lg no-print">
         <button onClick={goBack} disabled={history.current.length === 0}
           className="w-9 h-9 flex items-center justify-center text-white disabled:opacity-40" style={{ backgroundColor: color }}>
           <ChevronUp size={18} />
@@ -309,7 +309,7 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
   return (
     <div className="min-h-screen py-8 px-4" style={{ background: bg, fontFamily: form.theme.fontFamily }}>
       {form.settings.showProgressBar !== false && (
-        <div className="fixed top-0 left-0 right-0 h-1.5 bg-black/5 z-20">
+        <div className="fixed top-0 left-0 right-0 h-1.5 bg-black/5 z-20 no-print">
           <div className="h-full transition-all" style={{ width: `${progress}%`, backgroundColor: color }} />
         </div>
       )}
@@ -364,7 +364,7 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
           )
         })}
 
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center justify-between pt-2 no-print">
           <button onClick={handleSubmit} disabled={mutation.isPending}
             className="px-8 py-3 rounded-lg text-sm text-white font-medium transition-opacity disabled:opacity-50" style={{ backgroundColor: color }}>
             {mutation.isPending ? 'Envoi…' : 'Envoyer'}
