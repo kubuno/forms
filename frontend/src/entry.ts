@@ -1,6 +1,6 @@
 /** Bundle MODULE forms — chargé à l'exécution (cf. vite.module.config). */
 import { lazy } from 'react'
-import { RouteRegistry, WaffleAppRegistry, useToolbarStore, useSearchStore, SDK_VERSION } from '@kubuno/sdk'
+import { RouteRegistry, WaffleAppRegistry, ModuleSettingsRegistry, useToolbarStore, useSearchStore, SDK_VERSION } from '@kubuno/sdk'
 import { ClipboardList } from 'lucide-react'
 import './index.css'
 
@@ -10,6 +10,9 @@ export function register() {
   WaffleAppRegistry.register('forms', 'Formulaires', [
     { id: 'forms', label: 'Formulaires', Icon: ClipboardList, path: '/forms' },
   ])
+
+  // The header gear button opens the per-user Forms settings while in /forms.
+  ModuleSettingsRegistry.register('forms')
 
   useToolbarStore.getState().register({
     moduleId:    'forms',
