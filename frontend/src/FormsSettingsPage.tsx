@@ -1,15 +1,15 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, useAuthStore } from '@kubuno/sdk'
-import { ClipboardList, Save, ArrowLeft, ExternalLink, Check } from 'lucide-react'
+import { ClipboardList, ArrowLeft, ExternalLink, Check } from 'lucide-react'
 import { Toggle, Button, Radio } from '@ui'
 import { useModulePrefs } from './userPrefs'
 
 // ── Per-user preferences (backend, cross-device via core users.preferences) ─────
 
-interface FormsPrefs {
+// Type alias (not interface) so it satisfies the `Record<string, unknown>`
+// constraint of useModulePrefs (interfaces lack an implicit index signature).
+type FormsPrefs = {
   defaultView:   string   // 'grid' | 'list'
   defaultSort:   string   // 'recent' | 'name' | 'responses'
   defaultColor:  string   // hex color seeded into new forms' theme
@@ -172,256 +172,9 @@ function PreferencesTab() {
   )
 }
 
-// ── Admin-only global settings (instance, via /admin/settings) ──────────────────
-
-interface FormsAdminSettings {
-  'forms.max_questions':            number
-  'forms.max_file_upload_mb':       number
-  'forms.response_retention_days':  number
-  'forms.submission_cooldown_secs': number
-  'forms.notify_on_submit':         boolean
-  'forms.notify_email':             string
-}
-
-function useAdminSettings() {
-  return useQuery({
-    queryKey: ['admin-settings'],
-    queryFn:  () =>
-      api.get<{ settings: { key: string; value: unknown }[] }>('/admin/settings').then((r) => {
-        const map: Record<string, unknown> = {}
-        r.data.settings.forEach((s) => { map[s.key] = s.value })
-        return map as unknown as FormsAdminSettings
-      }),
-  })
-}
-
-function GeneralTab() {
-  const { t } = useTranslation('forms')
-  const qc = useQueryClient()
-  const { data: settings } = useAdminSettings()
-
-  const [maxQuestions,     setMaxQuestions]    = useState<number | null>(null)
-  const [maxFileUploadMb,  setMaxFileUploadMb] = useState<number | null>(null)
-  const [retentionDays,    setRetentionDays]   = useState<number | null>(null)
-  const [cooldownSecs,     setCooldownSecs]    = useState<number | null>(null)
-
-  const cur = {
-    maxQuestions:    maxQuestions    ?? (settings?.['forms.max_questions']            ?? 200),
-    maxFileUploadMb: maxFileUploadMb ?? (settings?.['forms.max_file_upload_mb']       ?? 10),
-    retentionDays:   retentionDays   ?? (settings?.['forms.response_retention_days']  ?? 0),
-    cooldownSecs:    cooldownSecs    ?? (settings?.['forms.submission_cooldown_secs'] ?? 30),
-  }
-
-  const isDirty = maxQuestions !== null || maxFileUploadMb !== null ||
-                  retentionDays !== null || cooldownSecs !== null
-
-  const save = useMutation({
-    mutationFn: (updates: Record<string, unknown>) => api.patch('/admin/settings', updates),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-settings'] })
-      setMaxQuestions(null); setMaxFileUploadMb(null)
-      setRetentionDays(null); setCooldownSecs(null)
-    },
-  })
-
-  function handleSave() {
-    const updates: Record<string, unknown> = {}
-    if (maxQuestions    !== null) updates['forms.max_questions']            = maxQuestions
-    if (maxFileUploadMb !== null) updates['forms.max_file_upload_mb']       = maxFileUploadMb
-    if (retentionDays   !== null) updates['forms.response_retention_days']  = retentionDays
-    if (cooldownSecs    !== null) updates['forms.submission_cooldown_secs'] = cooldownSecs
-    if (Object.keys(updates).length > 0) save.mutate(updates)
-  }
-
-  return (
-    <div>
-      <div className="bg-white rounded-xl border border-border divide-y divide-border">
-        {/* Max questions */}
-        <div className="p-5">
-          <label className="block text-sm font-medium text-text-primary mb-1">
-            {t('forms_admin_max_questions', { defaultValue: 'Nombre maximal de questions par formulaire' })}
-          </label>
-          <p className="text-xs text-text-secondary mb-3">
-            {t('forms_admin_max_questions_desc', { defaultValue: 'Limite le nombre total de questions (y compris les sections) dans un même formulaire.' })}
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={1000}
-              value={cur.maxQuestions}
-              onChange={(e) => setMaxQuestions(Number(e.target.value))}
-              className="w-28 px-3 py-2 border border-border rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <span className="text-sm text-text-tertiary">{t('forms_admin_questions_unit', { defaultValue: 'questions' })}</span>
-          </div>
-        </div>
-
-        {/* Max file upload */}
-        <div className="p-5">
-          <label className="block text-sm font-medium text-text-primary mb-1">
-            {t('forms_admin_max_file', { defaultValue: 'Taille maximale des fichiers importés' })}
-          </label>
-          <p className="text-xs text-text-secondary mb-3">
-            {t('forms_admin_max_file_desc', { defaultValue: 'Limite la taille de chaque fichier joint dans les questions de type « Upload ».' })}
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={cur.maxFileUploadMb}
-              onChange={(e) => setMaxFileUploadMb(Number(e.target.value))}
-              className="w-28 px-3 py-2 border border-border rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <span className="text-sm text-text-tertiary">{t('forms_admin_mb_unit', { defaultValue: 'Mo' })}</span>
-          </div>
-        </div>
-
-        {/* Submission cooldown */}
-        <div className="p-5">
-          <label className="block text-sm font-medium text-text-primary mb-1">
-            {t('forms_admin_cooldown', { defaultValue: 'Délai anti-spam entre deux soumissions (par IP)' })}
-          </label>
-          <p className="text-xs text-text-secondary mb-3">
-            {t('forms_admin_cooldown_desc', { defaultValue: 'Temps minimal entre deux soumissions consécutives depuis la même adresse IP. Mettre à 0 pour désactiver.' })}
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={3600}
-              value={cur.cooldownSecs}
-              onChange={(e) => setCooldownSecs(Number(e.target.value))}
-              className="w-28 px-3 py-2 border border-border rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <span className="text-sm text-text-tertiary">{t('forms_admin_secs_unit', { defaultValue: 'secondes' })}</span>
-          </div>
-        </div>
-
-        {/* Response retention */}
-        <div className="p-5">
-          <label className="block text-sm font-medium text-text-primary mb-1">
-            {t('forms_admin_retention', { defaultValue: 'Durée de conservation des réponses' })}
-          </label>
-          <p className="text-xs text-text-secondary mb-3">
-            {t('forms_admin_retention_desc', { defaultValue: 'Nombre de jours avant suppression automatique des réponses. Mettre à 0 pour une conservation illimitée.' })}
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={3650}
-              value={cur.retentionDays}
-              onChange={(e) => setRetentionDays(Number(e.target.value))}
-              className="w-28 px-3 py-2 border border-border rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <span className="text-sm text-text-tertiary">
-              {cur.retentionDays === 0
-                ? t('forms_admin_days_unlimited', { defaultValue: 'jours (illimité)' })
-                : t('forms_admin_days_unit', { defaultValue: 'jours' })}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <Button onClick={handleSave} disabled={!isDirty || save.isPending} icon={<Save size={15} />}>
-          {save.isPending
-            ? t('forms_admin_saving', { defaultValue: 'Enregistrement…' })
-            : t('forms_admin_save', { defaultValue: 'Enregistrer' })}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function ResponsesTab() {
-  const { t } = useTranslation('forms')
-  const qc = useQueryClient()
-  const { data: settings } = useAdminSettings()
-
-  const [notifyOnSubmit, setNotifyOnSubmit] = useState<boolean | null>(null)
-  const [notifyEmail,    setNotifyEmail]    = useState<string | null>(null)
-
-  const curNotify = notifyOnSubmit ?? (settings?.['forms.notify_on_submit'] ?? false)
-  const curEmail  = notifyEmail   ?? (settings?.['forms.notify_email']      ?? '')
-
-  const isDirty = notifyOnSubmit !== null || notifyEmail !== null
-
-  const save = useMutation({
-    mutationFn: (updates: Record<string, unknown>) => api.patch('/admin/settings', updates),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-settings'] })
-      setNotifyOnSubmit(null)
-      setNotifyEmail(null)
-    },
-  })
-
-  function handleSave() {
-    const updates: Record<string, unknown> = {}
-    if (notifyOnSubmit !== null) updates['forms.notify_on_submit'] = notifyOnSubmit
-    if (notifyEmail    !== null) updates['forms.notify_email']     = notifyEmail
-    if (Object.keys(updates).length > 0) save.mutate(updates)
-  }
-
-  return (
-    <div>
-      <div className="bg-white rounded-xl border border-border divide-y divide-border">
-        {/* Notification on submit */}
-        <div className="p-5 flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <p className="text-sm font-medium text-text-primary mb-1">
-              {t('forms_admin_notify_title', { defaultValue: 'Notification par email à chaque réponse' })}
-            </p>
-            <p className="text-xs text-text-secondary">
-              {t('forms_admin_notify_desc', { defaultValue: 'Envoie un email à l\'adresse ci-dessous lorsqu\'une nouvelle réponse est soumise (tous formulaires confondus).' })}
-            </p>
-          </div>
-          <Toggle checked={curNotify} onChange={() => setNotifyOnSubmit(!curNotify)} />
-        </div>
-
-        {/* Notify email */}
-        <div className="p-5">
-          <label className="block text-sm font-medium text-text-primary mb-1">
-            {t('forms_admin_notify_email', { defaultValue: 'Adresse email de notification' })}
-          </label>
-          <p className="text-xs text-text-secondary mb-3">
-            {t('forms_admin_notify_email_desc', { defaultValue: 'Email qui reçoit les notifications de soumission. Laissez vide pour utiliser l\'adresse de l\'administrateur système.' })}
-          </p>
-          <input
-            type="email"
-            value={curEmail}
-            onChange={(e) => setNotifyEmail(e.target.value)}
-            placeholder="notification@exemple.com"
-            className="w-full max-w-sm px-3 py-2 border border-border rounded-lg text-sm
-                       focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-        </div>
-
-        {/* Webhook info */}
-        <div className="p-5 bg-surface-1">
-          <p className="text-sm font-medium text-text-primary mb-1">{t('forms_admin_webhooks', { defaultValue: 'Webhooks' })}</p>
-          <p className="text-xs text-text-secondary">
-            {t('forms_admin_webhooks_desc', { defaultValue: 'Les webhooks se configurent individuellement sur chaque formulaire, depuis l\'onglet Paramètres de l\'éditeur de formulaire.' })}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <Button onClick={handleSave} disabled={!isDirty || save.isPending} icon={<Save size={15} />}>
-          {save.isPending
-            ? t('forms_admin_saving', { defaultValue: 'Enregistrement…' })
-            : t('forms_admin_save', { defaultValue: 'Enregistrer' })}
-        </Button>
-      </div>
-    </div>
-  )
-}
+// Instance-wide settings (max questions, file size, retention, cooldown,
+// notifications…) are now declared in module.toml `[[settings]]` and edited from
+// the core admin console — no longer a tab inside the module.
 
 function AboutTab() {
   const { t } = useTranslation('forms')
@@ -480,21 +233,18 @@ function AboutTab() {
 
 // ── Main page (mail-style breadcrumb + tab bar) ─────────────────────────────────
 
-type Tab = 'preferences' | 'general' | 'responses' | 'about'
+type Tab = 'preferences' | 'about'
 
 export default function FormsSettingsPage() {
   const { t } = useTranslation('forms')
-  const isAdmin = useAuthStore(s => s.user?.role === 'admin')
   const [tab, setTab] = useState<Tab>('preferences')
 
-  // Admin-only tabs (instance-wide settings) are hidden for non-admins.
-  const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
+  // Instance-wide settings are now edited from the core admin console; this page
+  // only hosts the per-user preferences and the module's "About" panel.
+  const visibleTabs: { id: Tab; label: string }[] = [
     { id: 'preferences', label: t('forms_tab_preferences', { defaultValue: 'Préférences' }) },
-    { id: 'general',     label: t('forms_tab_general',   { defaultValue: 'Général' }), adminOnly: true },
-    { id: 'responses',   label: t('forms_tab_responses', { defaultValue: 'Réponses' }), adminOnly: true },
     { id: 'about',       label: t('forms_tab_about', { defaultValue: 'À propos' }) },
   ]
-  const visibleTabs = tabs.filter(tb => !tb.adminOnly || isAdmin)
 
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
@@ -526,9 +276,7 @@ export default function FormsSettingsPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-6">
           {tab === 'preferences' && <PreferencesTab />}
-          {tab === 'general'   && isAdmin && <GeneralTab />}
-          {tab === 'responses' && isAdmin && <ResponsesTab />}
-          {tab === 'about'     && <AboutTab />}
+          {tab === 'about'       && <AboutTab />}
         </div>
       </div>
     </div>

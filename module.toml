@@ -1,7 +1,7 @@
 [module]
 id            = "forms"
 display_name  = "Forms"
-version       = "0.1.0"
+version       = "0.1.2"
 description   = "Formulaires et sondages — création, collecte de réponses, analyses"
 author        = "Kubuno Contributors"
 license       = "AGPL-3.0"
@@ -29,6 +29,59 @@ icon     = "ClipboardList"
 path     = "/forms"
 position = 45
 section  = "main"
+
+# ── Settings manifest ───────────────────────────────────────────────────────────
+# Declarative source of truth for the module's parameters. The core seeds the
+# instance-level rows (scope global|overridable) into core.settings and renders
+# them editable inside the admin console (scope global → admin only, instance-wide).
+
+[[settings]]
+key     = "max_questions"
+scope   = "global"
+type    = "int"
+default = 200
+label   = "Nombre maximal de questions par formulaire"
+description = "Limite le nombre total de questions (y compris les sections) dans un même formulaire."
+
+[[settings]]
+key     = "max_file_upload_mb"
+scope   = "global"
+type    = "int"
+default = 10
+label   = "Taille maximale des fichiers importés (Mo)"
+description = "Limite la taille de chaque fichier joint dans les questions de type « Upload »."
+
+[[settings]]
+key     = "response_retention_days"
+scope   = "global"
+type    = "int"
+default = 0
+label   = "Durée de conservation des réponses (jours)"
+description = "Nombre de jours avant suppression automatique des réponses. Mettre à 0 pour une conservation illimitée."
+
+[[settings]]
+key     = "submission_cooldown_secs"
+scope   = "global"
+type    = "int"
+default = 30
+label   = "Délai anti-spam entre deux soumissions (secondes, par IP)"
+description = "Temps minimal entre deux soumissions consécutives depuis la même adresse IP. Mettre à 0 pour désactiver."
+
+[[settings]]
+key     = "notify_on_submit"
+scope   = "global"
+type    = "bool"
+default = false
+label   = "Notification par email à chaque réponse"
+description = "Envoie un email à l'adresse configurée lorsqu'une nouvelle réponse est soumise (tous formulaires confondus)."
+
+[[settings]]
+key     = "notify_email"
+scope   = "global"
+type    = "string"
+default = ""
+label   = "Adresse email de notification"
+description = "Email qui reçoit les notifications de soumission. Laissez vide pour utiliser l'adresse de l'administrateur système."
 
 [events]
 subscribed = ["UserDeleted"]
