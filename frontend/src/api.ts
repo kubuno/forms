@@ -261,6 +261,30 @@ export const formsApi = {
   uploadDownloadUrl: (formId: string, fileId: string) =>
     `/api/v1/forms/forms/${formId}/uploads/${fileId}`,
 
+  // Form header image (banner)
+  uploadHeader: (formId: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ headerImagePath: string }>(`/forms/forms/${formId}/header`, fd)
+  },
+  deleteHeader: (formId: string) =>
+    api.delete<void>(`/forms/forms/${formId}/header`),
+  /** The banner is served through the form's PUBLIC token (it is public content). */
+  headerImageUrl: (publicToken: string, bust?: string | null) =>
+    `/api/v1/forms/public/${publicToken}/header${bust ? `?v=${encodeURIComponent(bust)}` : ''}`,
+
+  /** Upload an image into the form's own storage; the URL is publicly readable. */
+  uploadImage: (formId: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ url: string; name: string }>(`/forms/forms/${formId}/images`, fd)
+  },
+
+  // Question import from another form
+  importQuestions: (formId: string, sourceFormId: string, questionIds: string[]) =>
+    api.post<{ imported: number }>(`/forms/forms/${formId}/questions/import`,
+      { source_form_id: sourceFormId, question_ids: questionIds }),
+
   // Logique conditionnelle
   listRules:   (formId: string) =>
     api.get<{ rules: ConditionalRule[] }>(`/forms/forms/${formId}/rules`),

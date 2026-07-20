@@ -2,10 +2,12 @@
 // (scroll) and one-at-a-time (Typeform-style) public form shells.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Star, Heart, Upload, ChevronDown, Check, X, ArrowUp, ArrowDown, FileCheck2, Eraser } from 'lucide-react'
-import { DatePicker } from '@ui'
+// Aliased: this file already has a local `Dropdown` (the answer control).
+import { DatePicker, Dropdown as UiDropdown } from '@ui'
+import VideoBlock from './VideoBlock'
 import { publicFormsApi, type PublicQuestion, type UploadedFile } from './api'
 
-interface Opt { id: string; label: string }
+interface Opt { id: string; label: string; image?: string | null }
 
 interface Props {
   question:     PublicQuestion
@@ -59,6 +61,9 @@ export default function QuestionFiller({ question, value, onChange, primaryColor
       return <FileUpload {...{ value, onChange, primaryColor, token }} />
     case 'signature':
       return <Signature {...{ value, onChange, primaryColor }} />
+    case 'video':
+      // Content question: nothing is collected, the video is simply played.
+      return <VideoBlock options={question.options} title={question.title} />
     case 'grid_radio':
     case 'grid_checkbox':
       return <GridInput {...{ options: o, value, onChange, primaryColor, multi: question.question_type === 'grid_checkbox' }} />
@@ -167,7 +172,10 @@ function ChoiceList({ opts, value, onChange, primaryColor, large, multi }: {
               >
                 {on ? <Check size={16} /> : LETTERS[i]}
               </span>
-              <span className="text-base text-gray-800">{opt.label}</span>
+              <span className="flex flex-col gap-2">
+                <span className="text-base text-gray-800">{opt.label}</span>
+                {opt.image && <img src={opt.image} alt="" className="max-h-32 rounded" />}
+              </span>
             </button>
           )
         }
@@ -183,7 +191,10 @@ function ChoiceList({ opts, value, onChange, primaryColor, large, multi }: {
             >
               {on && <Check size={12} className="text-white" />}
             </span>
-            <span className="text-sm text-gray-700">{opt.label}</span>
+            <span className="flex flex-col gap-1.5">
+              <span className="text-sm text-gray-700">{opt.label}</span>
+              {opt.image && <img src={opt.image} alt="" className="max-h-28 rounded" />}
+            </span>
           </button>
         )
       })}
@@ -194,15 +205,13 @@ function ChoiceList({ opts, value, onChange, primaryColor, large, multi }: {
 function Dropdown({ opts, value, onChange }: { opts: Opt[]; value: unknown; onChange: (v: unknown) => void }) {
   return (
     <div className="relative">
-      <select
+      <UiDropdown
         value={(value as string) ?? ''}
-        onChange={e => onChange(e.target.value)}
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 outline-none appearance-none bg-white pr-8"
-      >
-        <option value="">Choisir…</option>
-        {opts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select>
-      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        onChange={v => onChange(v)}
+        options={opts.map(o => ({ value: o.id, label: o.label }))}
+        placeholder="Choisir…"
+        width="100%" height={38} fontSize={14}
+      />
     </div>
   )
 }

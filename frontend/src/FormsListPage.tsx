@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Button, MenuDropdown, type MenuDropdownPos } from '@ui'
 import { formsApi, type FormSummary } from './api'
+import { plainText } from './plainText'
 import { formatDistanceToNow } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -212,7 +213,7 @@ function FormCard({ form, trashed, onOpen, onDuplicate, onTrash, onRestore, onDe
         <div className="flex items-start justify-between gap-1">
           <button onClick={onOpen}
             className="text-sm font-medium text-text-primary truncate text-left flex-1 hover:text-primary transition-colors">
-            {form.title}
+            {plainText(form.title)}
           </button>
           <div className="relative">
             <button
@@ -271,7 +272,7 @@ function FormListRow({ form, trashed, onOpen, onTrash, onRestore, onDelete }: {
           <ClipboardList size={16} style={{ color }} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-text-primary truncate">{form.title}</p>
+          <p className="text-sm font-medium text-text-primary truncate">{plainText(form.title)}</p>
           <p className="text-xs text-text-tertiary">
             {formatDistanceToNow(new Date(form.updated_at), { addSuffix: true, locale: fr })}
             {form.response_count > 0 && ` · ${form.response_count} réponse${form.response_count > 1 ? 's' : ''}`}

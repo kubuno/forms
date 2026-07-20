@@ -92,13 +92,14 @@ pub async fn update(
 ) -> Result<Json<Value>> {
     let mut form = load_owned_form(&state, id, user.id).await?;
 
+    // Rich text in, sanitised at the door (see crate::richtext).
     if let Some(t) = body.title {
         if !t.is_empty() {
-            form.title = t;
+            form.title = crate::richtext::clean_required(&t, &form.title);
         }
     }
     if let Some(d) = body.description {
-        form.description = d.as_str().map(String::from);
+        form.description = d.as_str().and_then(crate::richtext::clean);
     }
     if let Some(th) = body.theme {
         form.theme = th;

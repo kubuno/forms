@@ -4,6 +4,7 @@ pub mod events;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod richtext;
 pub mod router;
 pub mod services;
 pub mod state;
