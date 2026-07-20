@@ -1,7 +1,7 @@
 [module]
 id            = "forms"
 display_name  = "Forms"
-version       = "0.1.3"
+version       = "0.1.4"
 description   = "Formulaires et sondages — création, collecte de réponses, analyses"
 author        = "Kubuno Contributors"
 license       = "AGPL-3.0"
