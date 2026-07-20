@@ -11,6 +11,10 @@ name = "kubuno-forms"
 path = "src/main.rs"
 
 [dependencies]
+# Titles/descriptions are now rich text: everything is sanitised on save so a
+# shared public form can never carry script or event handlers.
+ammonia            = "4"
+
 # Workspace
 tokio              = { workspace = true }
 axum               = { workspace = true }

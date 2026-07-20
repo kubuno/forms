@@ -1,5 +1,6 @@
 // Visual editor for conditional logic rules: "If <question> <operator> <value>
 // then <action> <target>". Branching powers both the classic and Typeform shells.
+import { Dropdown } from '@ui'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, GitBranch } from 'lucide-react'
 import { formsApi, type Question, type ConditionalRule, type RuleOperator, type RuleAction } from './api'
@@ -139,10 +140,7 @@ function Select({ value, onChange, options, disabled, color }: {
   options: Array<{ value: string; label: string }>; disabled?: boolean; color?: string
 }) {
   return (
-    <select value={value} disabled={disabled} onChange={e => onChange(e.target.value)}
-      className="border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-gray-500 disabled:bg-gray-50 disabled:text-gray-600 max-w-44"
-      style={color ? { color } : undefined}>
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    <Dropdown value={value} onChange={onChange} options={options} disabled={disabled}
+      height={32} fontSize={14} className="max-w-44" />
   )
 }

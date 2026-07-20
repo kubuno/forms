@@ -6,7 +6,7 @@ import {
   Sliders, Gauge, Star,
   Calendar, Clock,
   Upload, PenLine, Grid3X3,
-  Heading, Minus, Hand, PartyPopper,
+  Heading, Minus, Hand, PartyPopper, Image as ImageIcon, Clapperboard,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { QuestionType } from './api'
@@ -64,6 +64,8 @@ export const QUESTION_TYPES: QTypeMeta[] = [
   { value: 'grid_radio',    label: 'Grille — choix unique', Icon: Grid3X3, group: 'media', hasOptions: true },
   { value: 'grid_checkbox', label: 'Grille — cases',        Icon: Grid3X3, group: 'media', hasOptions: true },
   // Mise en page / contenu
+  { value: 'image',            label: 'Image',               Icon: ImageIcon,   group: 'content', isContent: true },
+  { value: 'video',            label: 'Vidéo',               Icon: Clapperboard, group: 'content', isContent: true },
   { value: 'statement',        label: 'Texte d’information', Icon: Heading,     group: 'content', isContent: true },
   { value: 'section',          label: 'Saut de section',     Icon: Minus,       group: 'content', isContent: true },
   { value: 'welcome_screen',   label: 'Écran d’accueil',     Icon: Hand,        group: 'content', isContent: true },

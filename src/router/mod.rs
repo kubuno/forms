@@ -28,6 +28,11 @@ pub fn build(state: AppState) -> Router {
         .route("/forms/:id/questions/reorder",                patch(questions::reorder))
         .route("/forms/:id/questions/:qid",                   patch(questions::update).delete(questions::delete))
         .route("/forms/:id/questions/:qid/duplicate",         post(questions::duplicate))
+        .route("/forms/:id/questions/import",                 post(questions::import))
+        // Form header image (banner)
+        .route("/forms/:id/header",                           post(uploads::upload_header).delete(uploads::delete_header))
+        // Images owned by the form (option illustrations, image blocks)
+        .route("/forms/:id/images",                           post(uploads::upload_image))
         // Réponses
         .route("/forms/:id/responses",                        get(responses::list).delete(responses::delete_all))
         .route("/forms/:id/responses/:rid",                   get(responses::get).delete(responses::delete_one))
@@ -43,6 +48,9 @@ pub fn build(state: AppState) -> Router {
         .route("/forms/:id/rules",                            get(rules::list).post(rules::create))
         .route("/forms/:id/rules/:rid",                       patch(rules::update).delete(rules::delete))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
+        // The header-image upload goes through this router: the 2 MB axum
+        // default would reject any realistic banner.
+        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state.clone());
 
     // Routes publiques (répondants anonymes)
@@ -51,6 +59,8 @@ pub fn build(state: AppState) -> Router {
         .route("/public/:token/submit", post(public::submit))
         .route("/public/:token/status", get(public::status))
         .route("/public/:token/upload", post(uploads::upload))
+        .route("/public/:token/header", get(uploads::header_image))
+        .route("/public/:token/image/:name", get(uploads::form_image))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state.clone());
 

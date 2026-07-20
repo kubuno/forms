@@ -173,8 +173,8 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
     return (
       <FullScreen bg={bg} font={form.theme.fontFamily}>
         <div className="max-w-xl w-full text-center animate-[fadeIn_.4s_ease]">
-          <h1 className="text-3xl font-semibold text-gray-900 mb-4">{welcome.title}</h1>
-          {welcome.description && <p className="text-lg text-gray-600 mb-8 whitespace-pre-wrap">{welcome.description}</p>}
+          <h1 className="text-3xl font-semibold text-gray-900 mb-4"><span dangerouslySetInnerHTML={{ __html: welcome.title }} /></h1>
+          {welcome.description && <p className="text-lg text-gray-600 mb-8"><span dangerouslySetInnerHTML={{ __html: welcome.description }} /></p>}
           <button onClick={() => setPhase('filling')} className="inline-flex items-center gap-2 px-7 py-3 rounded-xl text-white text-base font-medium shadow-sm transition-transform hover:scale-105" style={{ backgroundColor: color }}>
             {(welcome.options?.buttonText as string) || 'Commencer'} <ArrowRight size={18} />
           </button>
@@ -205,10 +205,10 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
                 <span className="text-sm font-medium mt-1.5" style={{ color }}>{currentIdx + 1} <ArrowRight size={12} className="inline" /></span>
                 <div>
                   <h2 className="text-2xl font-medium text-gray-900">
-                    {current.title}
+                    <span dangerouslySetInnerHTML={{ __html: current.title }} />
                     {current.required && <span className="text-red-400 ml-1">*</span>}
                   </h2>
-                  {current.description && <p className="text-gray-500 mt-1 whitespace-pre-wrap">{current.description}</p>}
+                  {current.description && <p className="text-gray-500 mt-1"><span dangerouslySetInnerHTML={{ __html: current.description }} /></p>}
                 </div>
               </div>
 
@@ -318,9 +318,9 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
         <div className="rounded-xl overflow-hidden shadow-sm">
           <div className="h-2.5 w-full" style={{ background: color }} />
           <div className="bg-white px-6 py-5 border-t-4" style={{ borderColor: color }}>
-            <h1 className="text-2xl text-gray-800 mb-2">{welcome?.title || form.title}</h1>
+            <h1 className="text-2xl text-gray-800 mb-2"><span dangerouslySetInnerHTML={{ __html: welcome?.title || form.title }} /></h1>
             {(welcome?.description || form.description) && (
-              <p className="text-sm text-gray-600 whitespace-pre-wrap">{welcome?.description || form.description}</p>
+              <p className="text-sm text-gray-600"><span dangerouslySetInnerHTML={{ __html: (welcome?.description || form.description) as string }} /></p>
             )}
             {form.settings.collectEmail && (
               <div className="mt-4">
@@ -337,25 +337,25 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
           if (q.question_type === 'section') {
             return (
               <div key={q.id} className="pt-4">
-                {q.title && <h2 className="text-lg font-medium text-gray-700 border-b border-gray-200 pb-2">{q.title}</h2>}
-                {q.description && <p className="text-sm text-gray-500 mt-1">{q.description}</p>}
+                {q.title && <h2 className="text-lg font-medium text-gray-700 border-b border-gray-200 pb-2"><span dangerouslySetInnerHTML={{ __html: q.title }} /></h2>}
+                {q.description && <p className="text-sm text-gray-500 mt-1"><span dangerouslySetInnerHTML={{ __html: q.description }} /></p>}
               </div>
             )
           }
           if (q.question_type === 'statement') {
             return (
               <div key={q.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                <h3 className="text-base font-medium text-gray-800">{q.title}</h3>
-                {q.description && <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{q.description}</p>}
+                <h3 className="text-base font-medium text-gray-800"><span dangerouslySetInnerHTML={{ __html: q.title }} /></h3>
+                {q.description && <p className="text-sm text-gray-600 mt-1"><span dangerouslySetInnerHTML={{ __html: q.description }} /></p>}
               </div>
             )
           }
           return (
             <div key={q.id} className={`bg-white rounded-xl border shadow-sm p-6 ${missing.has(q.id) ? 'border-red-300' : 'border-gray-200'}`}>
               <div className="text-base text-gray-800 mb-1">
-                {q.title}{q.required && <span className="text-red-500 ml-1">*</span>}
+                <span dangerouslySetInnerHTML={{ __html: q.title }} />{q.required && <span className="text-red-500 ml-1">*</span>}
               </div>
-              {q.description && <p className="text-sm text-gray-500 mb-3 whitespace-pre-wrap">{q.description}</p>}
+              {q.description && <p className="text-sm text-gray-500 mb-3"><span dangerouslySetInnerHTML={{ __html: q.description }} /></p>}
               <div className="mt-3">
                 <QuestionFiller question={q} value={answers[q.id]} onChange={v => setAnswer(q.id, v)} primaryColor={color} token={token} />
               </div>
@@ -404,7 +404,7 @@ function DoneScreen({ color, confirmation, quizResult, thankYou, bg }: {
           </div>
         )}
         <h3 className="text-lg font-medium text-gray-800 mb-1">{thankYou?.title || 'Merci !'}</h3>
-        <p className="text-sm text-gray-600 whitespace-pre-wrap">{thankYou?.description || confirmation}</p>
+        <p className="text-sm text-gray-600">{thankYou?.description || confirmation}</p>
         <PoweredBy />
       </div>
     </FullScreen>

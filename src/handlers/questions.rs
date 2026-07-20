@@ -37,7 +37,14 @@ pub async fn create(
     load_owned_form(&state, form_id, user.id).await?;
 
     let qtype = body.question_type.unwrap_or_else(|| "short_text".to_string());
-    let title = body.title.unwrap_or_else(|| "Question sans titre".to_string());
+    // Default title follows the kind of block being created.
+    let title = body.title.unwrap_or_else(|| match qtype.as_str() {
+        "section"          => "Section sans titre".to_string(),
+        "statement"        => "Titre".to_string(),
+        "image"            => "Image".to_string(),
+        "video"            => "Vidéo".to_string(),
+        _                  => "Question sans titre".to_string(),
+    });
 
     let max_pos: Option<i32> = sqlx::query_scalar(
         "SELECT MAX(position) FROM forms.questions WHERE form_id = $1",
@@ -48,6 +55,24 @@ pub async fn create(
 
     let position = body.position.unwrap_or_else(|| max_pos.unwrap_or(-1) + 1);
 
+    // Inserting in the middle: push everything from that slot down first, in the
+    // same transaction, so positions stay unique and ordered.
+    let mut tx = state.db.begin().await?;
+    if body.position.is_some() {
+        if let Err(e) = sqlx::query(
+            "UPDATE forms.questions SET position = position + 1
+             WHERE form_id = $1 AND position >= $2",
+        )
+        .bind(form_id)
+        .bind(position)
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!(form_id = %form_id, error = %e, "Décalage des positions échoué");
+            return Err(e.into());
+        }
+    }
+
     let question = sqlx::query_as::<_, Question>(
         "INSERT INTO forms.questions (form_id, position, question_type, title)
          VALUES ($1, $2, $3, $4)
@@ -57,8 +82,9 @@ pub async fn create(
     .bind(position)
     .bind(&qtype)
     .bind(&title)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     Ok(Json(json!({ "question": question })))
 }
@@ -73,8 +99,13 @@ pub async fn update(
     let mut q = load_question(&state, question_id, form_id).await?;
 
     if let Some(t) = body.question_type { q.question_type = t; }
-    if let Some(t) = body.title         { if !t.is_empty() { q.title = t; } }
-    if let Some(d) = body.description   { q.description = d.as_str().map(String::from); }
+    // Rich text in, sanitised at the door (see crate::richtext).
+    if let Some(t) = body.title {
+        if !t.is_empty() { q.title = crate::richtext::clean_required(&t, &q.title); }
+    }
+    if let Some(d) = body.description {
+        q.description = d.as_str().and_then(crate::richtext::clean);
+    }
     if let Some(r) = body.required      { q.required = r; }
     if let Some(o) = body.options       { q.options = o; }
     if let Some(p) = body.points        { q.points = p; }
@@ -183,4 +214,70 @@ async fn load_question(state: &AppState, id: Uuid, form_id: Uuid) -> Result<Ques
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound(format!("Question {id}")))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ImportQuestionsDto {
+    pub source_form_id: Uuid,
+    /// Questions to copy, in the order the user picked them.
+    pub question_ids:   Vec<Uuid>,
+}
+
+/// Copy questions from ANOTHER form owned by the same user, appended at the end.
+/// Both forms are ownership-checked: importing is never a way to read a form
+/// the caller does not own.
+pub async fn import(
+    State(state): State<AppState>,
+    Extension(user): Extension<FormsUser>,
+    Path(form_id): Path<Uuid>,
+    Json(body): Json<ImportQuestionsDto>,
+) -> Result<Json<Value>> {
+    load_owned_form(&state, form_id, user.id).await?;
+    load_owned_form(&state, body.source_form_id, user.id).await?;
+
+    if body.question_ids.is_empty() {
+        return Err(FormsError::Validation("Aucune question sélectionnée".into()));
+    }
+    if body.source_form_id == form_id {
+        return Err(FormsError::Validation(
+            "Le formulaire source doit être différent du formulaire cible".into(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    let next: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM forms.questions WHERE form_id = $1",
+    )
+    .bind(form_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let mut imported = 0i32;
+    for (i, qid) in body.question_ids.iter().enumerate() {
+        let res = sqlx::query(
+            "INSERT INTO forms.questions
+                (form_id, position, question_type, title, description, required, options,
+                 points, correct_answers, feedback_correct, feedback_incorrect)
+             SELECT $1, $2, question_type, title, description, required, options,
+                    points, correct_answers, feedback_correct, feedback_incorrect
+             FROM forms.questions WHERE id = $3 AND form_id = $4",
+        )
+        .bind(form_id)
+        .bind(next + i as i32)
+        .bind(qid)
+        .bind(body.source_form_id)
+        .execute(&mut *tx)
+        .await;
+        match res {
+            Ok(r) => imported += r.rows_affected() as i32,
+            Err(e) => {
+                tracing::error!(question_id = %qid, error = %e, "Import de question échoué");
+                return Err(e.into());
+            }
+        }
+    }
+
+    tx.commit().await?;
+    Ok(Json(json!({ "imported": imported })))
 }
