@@ -5,9 +5,8 @@ import { useRef, useState } from 'react'
 import { Plus, X, Check, Trophy, HardDrive, Clapperboard, Link2, Search, GripVertical, Image as ImageIcon } from 'lucide-react'
 import { Dropdown, Button, Input, Spinner } from '@ui'
 import { useQuery } from '@tanstack/react-query'
-import { api, ModuleServiceRegistry, useModulesStore } from '@kubuno/sdk'
+import { api, ModuleServiceRegistry, useModulesStore, pickImageFile } from '@kubuno/sdk'
 import { formsApi, type Question } from './api'
-import { pickImageFile } from './imagePicker'
 import { getMeta, genId } from './questionTypes'
 import { readSource, providerName, type VideoKind, type VideoSource } from './videoSource'
 import VideoBlock from './VideoBlock'
@@ -187,7 +186,7 @@ function OptionImageButton({ formId, image, onChange }: {
   const pick = async () => {
     setBusy(true)
     try {
-      const file = await pickImageFile(image ? "Remplacer l'image" : "Image de l'option")
+      const file = await pickImageFile({ title: image ? "Remplacer l'image" : "Image de l'option" })
       if (!file) return
       const r = await formsApi.uploadImage(formId, file)
       onChange(r.data.url)

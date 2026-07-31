@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ClipboardList, ArrowLeft, ExternalLink, Check } from 'lucide-react'
-import { Toggle, Button, Radio } from '@ui'
+import { Toggle, Button, Radio, useSaveShortcut} from '@ui'
 import { useModulePrefs } from './userPrefs'
 
 // ── Per-user preferences (backend, cross-device via core users.preferences) ─────
@@ -68,6 +68,9 @@ function PreferencesTab() {
 
   const set = <K extends keyof FormsPrefs>(key: K, value: FormsPrefs[K]) =>
     setPrefs(p => ({ ...p, [key]: value }))
+
+  // Ctrl+S saves immediately (disabled while a save is in flight).
+  useSaveShortcut(() => { void save() }, !busy)
 
   const save = async () => {
     setBusy(true)

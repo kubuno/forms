@@ -2,6 +2,12 @@ import { api } from '@kubuno/sdk'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/** Font + size for one text role of the form. */
+export interface FormTextStyle {
+  font: string
+  size: number
+}
+
 export interface FormTheme {
   primaryColor:     string
   headerColor:      string
@@ -10,10 +16,14 @@ export interface FormTheme {
   backgroundColor?: string | null
   font?:            string
   style:            'default' | 'classic' | 'playful'
+  /** Per-role typography. Stored in the theme JSON, so no migration needed. */
+  headerText?:      FormTextStyle
+  questionText?:    FormTextStyle
+  bodyText?:        FormTextStyle
 }
 
 /** How the public form is presented to respondents. */
-export type DisplayMode = 'classic' | 'one_at_a_time'
+export type DisplayMode = 'classic' | 'one_at_a_time' | 'section'
 
 export interface FormSettings {
   collectEmail:          boolean
@@ -29,6 +39,9 @@ export interface FormSettings {
   maxResponses:          number | null
   webhookUrl:            string | null
   // v2
+  /** Who may OPEN the form for editing: only people with access, or anyone
+   *  holding the link. */
+  editorLinkAccess?:     'restricted' | 'link'
   displayMode?:          DisplayMode
   quizMode?:             boolean
   showResultImmediately?: boolean
@@ -223,6 +236,9 @@ export const formsApi = {
     api.delete<{ ok: boolean }>(`/forms/forms/${id}/delete`),
   duplicate:  (id: string) =>
     api.post<{ form: Form }>(`/forms/forms/${id}/duplicate`),
+  /** Issues a fresh public link; the previous one stops working at once. */
+  rotatePublicToken: (id: string) =>
+    api.post<{ public_token: string }>(`/forms/forms/${id}/rotate-token`),
   publish:    (id: string, publish: boolean) =>
     api.post<{ published: boolean }>(`/forms/forms/${id}/publish`, { publish }),
 
@@ -294,6 +310,39 @@ export const formsApi = {
     api.patch<{ rule: ConditionalRule }>(`/forms/forms/${formId}/rules/${rid}`, data),
   deleteRule:  (formId: string, rid: string) =>
     api.delete<{ ok: boolean }>(`/forms/forms/${formId}/rules/${rid}`),
+}
+
+// ── Sharing (user-to-user) ───────────────────────────────────────────────────
+
+/** A form is either readable or editable — there is nothing to comment on. */
+export type CollabPermission = 'view' | 'edit'
+
+export interface Recipient {
+  id:           string
+  display_name: string | null
+  email:        string
+  avatar_url:   string | null
+}
+
+export interface CollaboratorEntry {
+  user_id:      string
+  permission:   CollabPermission
+  display_name: string | null
+  email:        string
+  avatar_url:   string | null
+}
+
+export const collaboratorsApi = {
+  listCollaborators: (id: string) =>
+    api.get<{ owner: Recipient | null; collaborators: CollaboratorEntry[] }>(`/forms/forms/${id}/collaborators`).then(r => r.data),
+  addCollaborator: (id: string, userId: string, permission: CollabPermission = 'edit') =>
+    api.post(`/forms/forms/${id}/collaborators`, { user_id: userId, permission }),
+  updateCollaborator: (id: string, userId: string, permission: CollabPermission) =>
+    api.patch(`/forms/forms/${id}/collaborators/${userId}`, { permission }),
+  removeCollaborator: (id: string, userId: string) =>
+    api.delete(`/forms/forms/${id}/collaborators/${userId}`),
+  searchRecipients: (q: string) =>
+    api.get<{ recipients: Recipient[] }>('/forms/recipients', { params: { q } }).then(r => r.data.recipients),
 }
 
 // Public API (sans auth)

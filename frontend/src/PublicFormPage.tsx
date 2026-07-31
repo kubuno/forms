@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect, useCallback, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { CheckCircle2, ChevronUp, ChevronDown, ArrowRight, Trophy } from 'lucide-react'
+import { CheckCircle2, ChevronUp, ChevronDown, ArrowRight, Trophy, ArrowLeft, EyeOff, Link2 as LinkIcon } from 'lucide-react'
 import { publicFormsApi, type AnswerInput, type PublicForm, type PublicQuestion, type QuizResult } from './api'
 import QuestionFiller from './QuestionFiller'
 import { computeHidden, resolveJump } from './logic'
@@ -11,6 +11,9 @@ import { isContentType } from './questionTypes'
 
 export default function PublicFormPage() {
   const { token } = useParams<{ token: string }>()
+  // Opened from the editor's Aperçu button: adds the preview chrome and lets
+  // the author see a form that is not accepting answers yet.
+  const preview = new URLSearchParams(location.search).get('preview') === '1'
 
   const { data: statusData } = useQuery({
     queryKey: ['form-status', token],
@@ -27,15 +30,63 @@ export default function PublicFormPage() {
   if (isLoading || (statusData?.status === 'open' && !formData)) {
     return <Centered><p className="text-gray-500 text-sm">Chargement du formulaire…</p></Centered>
   }
-  if (statusData?.status === 'closed')  return <StatusScreen message="Ce formulaire n'accepte plus de réponses." />
-  if (statusData?.status === 'expired') return <StatusScreen message="Ce formulaire a expiré." />
-  if (statusData?.status === 'full')    return <StatusScreen message="Ce formulaire a atteint son nombre maximum de réponses." />
+  if (!preview) {
+    if (statusData?.status === 'closed')  return <StatusScreen message="Ce formulaire n'accepte plus de réponses." />
+    if (statusData?.status === 'expired') return <StatusScreen message="Ce formulaire a expiré." />
+    if (statusData?.status === 'full')    return <StatusScreen message="Ce formulaire a atteint son nombre maximum de réponses." />
+  }
   if (!formData) return null
 
   const mode = formData.settings.displayMode ?? 'one_at_a_time'
-  return mode === 'classic'
-    ? <ClassicShell form={formData} token={token!} />
-    : <OneAtATimeShell form={formData} token={token!} />
+  const shell = mode === 'one_at_a_time'
+    ? <OneAtATimeShell form={formData} token={token!} />
+    : <ClassicShell form={formData} token={token!} paged={mode === 'section'} />
+
+  if (!preview) return shell
+  return (
+    <PreviewChrome token={token!} closed={statusData?.status !== 'open'}>
+      {shell}
+    </PreviewChrome>
+  )
+}
+
+/** Editor preview: a bar naming the mode, the publication state and the link. */
+function PreviewChrome({ token, closed, children }: {
+  token: string; closed: boolean; children: React.ReactNode
+}) {
+  const [copied, setCopied] = useState(false)
+  const url = `${location.origin}/forms/public/${token}`
+  // No height box around the form: a flex column with a min-h-0 child clipped
+  // the page and left nothing to scroll. The bar sticks, the content flows.
+  // The chrome eats into the viewport, so the form is told how much is left.
+  const chrome = closed ? '6.5rem' : '3.5rem'
+  return (
+    <div style={{ ['--form-vh' as string]: `calc(100vh - ${chrome})` }}>
+      <div className="sticky top-0 z-30 flex items-center gap-3 px-4 h-14 bg-white border-b border-gray-200">
+        <button onClick={() => window.close()} aria-label="Fermer l'aperçu" title="Fermer l'aperçu"
+          className="w-9 h-9 flex items-center justify-center rounded-full text-gray-600 hover:bg-gray-100">
+          <ArrowLeft size={18} />
+        </button>
+        <span className="text-base text-gray-800">Mode aperçu</span>
+        <div className="flex-1" />
+        <span className="flex items-center gap-1.5 text-xs text-gray-500">
+          <EyeOff size={15} /> {closed ? 'Non publié' : 'Publié'}
+        </span>
+        <button
+          onClick={() => { void navigator.clipboard.writeText(url).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1600) }) }}
+          className="flex items-center gap-2 px-3 h-9 rounded-lg text-xs text-blue-600 hover:bg-blue-50">
+          <LinkIcon size={15} /> {copied ? 'Lien copié' : 'Copier le lien pour les répondants'}
+        </button>
+      </div>
+      {closed && (
+        <div className="sticky top-14 z-30 flex items-center gap-2 px-4 py-2.5 bg-amber-50 text-xs text-gray-700">
+          <EyeOff size={15} className="text-amber-600" />
+          Ce formulaire n'accepte pas de réponses.
+        </div>
+      )}
+      {children}
+    </div>
+  )
 }
 
 // ── Shared submission logic ──────────────────────────────────────────────────
@@ -112,7 +163,21 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
   const currentIdx = steps.findIndex(s => s.id === currentId)
   const current = currentIdx >= 0 ? steps[currentIdx] : undefined
 
+  /**
+   * Section the current step sits in — the last `section` block before it in
+   * the form's own order. Steps skip section blocks, so without this the
+   * respondent would lose the heading that frames the questions.
+   */
+  const currentSection = useMemo(() => {
+    if (!current) return undefined
+    const all = form.questions
+    const i = all.findIndex(q => q.id === current.id)
+    for (let k = i - 1; k >= 0; k--) if (all[k].question_type === 'section') return all[k]
+    return undefined
+  }, [current, form.questions])
+
   const setAnswer = (qid: string, v: unknown) => setAnswers(prev => ({ ...prev, [qid]: v }))
+
 
   const isAnswered = (q: PublicQuestion) => {
     const v = answers[q.id]
@@ -198,9 +263,28 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
       )}
 
       <div className="max-w-2xl w-full">
+        {/* Banner, as in the editor: it frames the form whatever the mode. */}
+        {form.header_image_path && (
+          <img src={`/api/v1/forms/public/${token}/header`} alt=""
+            className="w-full rounded-xl object-cover mb-8" style={{ maxHeight: 160 }} />
+        )}
         <div className={`transition-all duration-200 ease-out ${animClass}`}>
           {current && (
             <div>
+              {currentSection && (currentSection.title || currentSection.description) && (
+                <div className="mb-6 bg-white/70 rounded-xl border border-gray-200 p-4">
+                  {currentSection.title && (
+                    <h2 className="text-lg text-gray-800">
+                      <span dangerouslySetInnerHTML={{ __html: currentSection.title }} />
+                    </h2>
+                  )}
+                  {currentSection.description && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      <span dangerouslySetInnerHTML={{ __html: currentSection.description }} />
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-start gap-2 mb-1">
                 <span className="text-sm font-medium mt-1.5" style={{ color }}>{currentIdx + 1} <ArrowRight size={12} className="inline" /></span>
                 <div>
@@ -268,7 +352,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
 
 // ── Classic (scrolling) shell ────────────────────────────────────────────────
 
-function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
+function ClassicShell({ form, token, paged = false }: { form: PublicForm; token: string; paged?: boolean }) {
   const color = form.theme.primaryColor ?? '#673ab7'
   const { answers, setAnswers, done, confirmation, quizResult, mutation } = useSubmission(form, token)
   const [missing, setMissing] = useState<Set<string>>(new Set())
@@ -285,7 +369,41 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
     )
   }, [form.questions, form.rules, answers])
 
+  /**
+   * "Par section": the visible blocks are cut at each `section` header, one
+   * page per section. Everything before the first header is page one, so a
+   * form without sections still works — it simply has a single page.
+   */
+  const pages = useMemo(() => {
+    if (!paged) return [visible]
+    const out: PublicQuestion[][] = [[]]
+    for (const q of visible) {
+      if (q.question_type === 'section' && out[out.length - 1].length) out.push([])
+      out[out.length - 1].push(q)
+    }
+    return out.filter(p => p.length)
+  }, [paged, visible])
+
+  const [page, setPage] = useState(0)
+  const shown = pages[Math.min(page, pages.length - 1)] ?? []
+  const lastPage = page >= pages.length - 1
+
   const setAnswer = (qid: string, v: unknown) => setAnswers(prev => ({ ...prev, [qid]: v }))
+
+  /** Validates the current page before moving on. */
+  const goNextPage = () => {
+    const miss = new Set<string>()
+    for (const q of shown) {
+      if (q.required && !isContentType(q.question_type)) {
+        const v = answers[q.id]
+        if (v == null || v === '' || (Array.isArray(v) && !v.length)) miss.add(q.id)
+      }
+    }
+    setMissing(miss)
+    if (miss.size) return
+    setPage(p => p + 1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const handleSubmit = () => {
     const miss = new Set<string>()
@@ -314,6 +432,12 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
         </div>
       )}
       <div className="max-w-2xl mx-auto space-y-4">
+        {/* Banner: served through the form's public token, like the editor's. */}
+        {form.header_image_path && (
+          <img src={`/api/v1/forms/public/${token}/header`} alt=""
+            className="w-full rounded-xl object-cover" style={{ maxHeight: 220 }} />
+        )}
+
         {/* Header */}
         <div className="rounded-xl overflow-hidden shadow-sm">
           <div className="h-2.5 w-full" style={{ background: color }} />
@@ -333,11 +457,12 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
         </div>
 
         {/* Questions */}
-        {visible.map(q => {
+        {shown.map(q => {
           if (q.question_type === 'section') {
+            // A section header is a block of its own, shown like the others.
             return (
-              <div key={q.id} className="pt-4">
-                {q.title && <h2 className="text-lg font-medium text-gray-700 border-b border-gray-200 pb-2"><span dangerouslySetInnerHTML={{ __html: q.title }} /></h2>}
+              <div key={q.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                {q.title && <h2 className="text-xl text-gray-800"><span dangerouslySetInnerHTML={{ __html: q.title }} /></h2>}
                 {q.description && <p className="text-sm text-gray-500 mt-1"><span dangerouslySetInnerHTML={{ __html: q.description }} /></p>}
               </div>
             )
@@ -365,10 +490,25 @@ function ClassicShell({ form, token }: { form: PublicForm; token: string }) {
         })}
 
         <div className="flex items-center justify-between pt-2 no-print">
-          <button onClick={handleSubmit} disabled={mutation.isPending}
-            className="px-8 py-3 rounded-lg text-sm text-white font-medium transition-opacity disabled:opacity-50" style={{ backgroundColor: color }}>
-            {mutation.isPending ? 'Envoi…' : 'Envoyer'}
-          </button>
+          <div className="flex items-center gap-2">
+            {paged && page > 0 && (
+              <button onClick={() => { setPage(p => p - 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                className="px-6 py-3 rounded-lg text-xs border border-gray-300 text-gray-700 hover:bg-gray-50">
+                Précédent
+              </button>
+            )}
+            {paged && !lastPage ? (
+              <button onClick={goNextPage}
+                className="px-8 py-3 rounded-lg text-xs text-white font-medium" style={{ backgroundColor: color }}>
+                Suivant
+              </button>
+            ) : (
+              <button onClick={handleSubmit} disabled={mutation.isPending}
+                className="px-8 py-3 rounded-lg text-sm text-white font-medium transition-opacity disabled:opacity-50" style={{ backgroundColor: color }}>
+                {mutation.isPending ? 'Envoi…' : 'Envoyer'}
+              </button>
+            )}
+          </div>
           <button onClick={() => { setAnswers({}); setMissing(new Set()) }} className="text-sm text-gray-500 hover:text-gray-700">Effacer le formulaire</button>
         </div>
 
@@ -415,7 +555,8 @@ function DoneScreen({ color, confirmation, quizResult, thankYou, bg }: {
 
 function FullScreen({ children, bg, font }: { children: ReactNode; bg: string; font?: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 py-16" style={{ background: bg, fontFamily: font }}>
+    <div className="flex items-center justify-center px-6 py-16"
+      style={{ background: bg, fontFamily: font, minHeight: 'var(--form-vh, 100vh)' }}>
       {children}
     </div>
   )

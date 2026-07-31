@@ -210,6 +210,30 @@ pub async fn duplicate(
     Ok(Json(json!({ "form": new_form })))
 }
 
+/// `POST /forms/forms/:id/rotate-token` — issues a fresh public link.
+///
+/// Revoking a link is the only way to cut off people who already have it: the
+/// old token stops resolving the moment a new one is stored. Answers already
+/// collected are untouched.
+pub async fn rotate_token(
+    State(state): State<AppState>,
+    Extension(user): Extension<FormsUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>> {
+    load_owned_form(&state, id, user.id).await?;
+    let token: String = sqlx::query_scalar(
+        r#"UPDATE forms.forms
+           SET public_token = replace(gen_random_uuid()::text, '-', '')
+                           || replace(gen_random_uuid()::text, '-', '')
+           WHERE id = $1
+           RETURNING public_token"#,
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(json!({ "public_token": token })))
+}
+
 pub async fn publish(
     State(state): State<AppState>,
     Extension(user): Extension<FormsUser>,

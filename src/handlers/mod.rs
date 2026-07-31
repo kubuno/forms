@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod collaborators;
 pub mod export;
 pub mod forms;
 pub mod health;

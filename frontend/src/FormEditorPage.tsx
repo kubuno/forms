@@ -5,20 +5,28 @@ import {
   Eye, Send, Trash2, Copy, GripVertical, ChevronDown,
   ArrowLeft, BarChart2, ClipboardList,
   Trophy, Star, Heart, Check,
-  ImagePlus, ImageIcon, RefreshCw, CirclePlus, FileInput, Type as TypeIcon,
+  ImagePlus, ImageIcon, RefreshCw, SlidersHorizontal, CirclePlus, FileInput, Type as TypeIcon,
+  Table2, Download, Printer, Bell, BellRing, Code2, Palette, Link2, UserPlus, Share,
   Video, Rows3, X, Undo2, Redo2, MoreVertical,
 } from 'lucide-react'
-import { formsApi, type Form, type Question, type QuestionType } from './api'
+import { formsApi, collaboratorsApi, type Form, type Question, type QuestionType } from './api'
 import { plainText } from './plainText'
-import { pickImageFile } from './imagePicker'
-import { DatePicker, Dropdown, Button, Checkbox, MenuDropdown, useMenuDropdown, Toggle, ConfirmDialog, type MenuItem } from '@ui'
-import { useConfirm } from '@kubuno/sdk'
+import HeaderImageEditor from './HeaderImageEditor'
+import BlockGhost, { measureBlock, type GhostShape } from './BlockGhost'
+import FormSettingsTab from './FormSettingsTab'
+import ThemePanel from './ThemePanel'
+import { openShare } from './shareSdk'
+import { useModulePrefs, FORM_DEFAULTS, type FormDefaults } from './userPrefs'
+
+/** Only the key this tab touches; the settings page owns the rest. */
+type FormsNotifyPrefs = { notifyOnReply: boolean }
+import { DatePicker, Dropdown, Button, Checkbox, MenuDropdown, useMenuDropdown, Toggle, ConfirmDialog, type MenuItem, Tooltip } from '@ui'
+import { useConfirm, pickImageFile } from '@kubuno/sdk'
 import {
   QUESTION_TYPES, getMeta, defaultOptionsFor, isContentType,
 } from './questionTypes'
 import OptionsEditor from './OptionsEditor'
 import VideoBlock from './VideoBlock'
-import { Tooltip } from './Tooltip'
 import InlineRichField from './InlineRichField'
 import LogicEditor from './LogicEditor'
 import { useEditorHistory, isTypingTarget, type IdRef } from './useEditorHistory'
@@ -49,12 +57,23 @@ export default function FormEditorPage() {
 
   const [activeTab, setActiveTab]               = useState<Tab>('questions')
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null)
+  // Whether the active block's band is out on the left (vs folded inside).
+  const railOut = useRoomForRail()
   const [showImport, setShowImport]             = useState(false)
   const [showThemePicker, setShowThemePicker]   = useState(false)
   const dragId = useRef<string | null>(null)
+  // A finished drag is followed by a stray `click` on the common ancestor of
+  // press and release — which the click-away handler would read as "clicked
+  // outside" and drop the selection. Timestamped so a drag that ends without a
+  // click never swallows a later one.
+  const draggedAt = useRef(0)
+  // Only feedback during a block drag: the silhouette of the slot it would
+  // land in — the block's real outline, band and S-curve included.
+  const [ghost, setGhost] = useState<GhostShape | null>(null)
 
   const refresh = useCallback(() => { qc.invalidateQueries({ queryKey: ['form', id] }) }, [qc, id])
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
+  const formMenu = useMenuDropdown()
   const history = useEditorHistory(refresh)
 
   const { data, isLoading } = useQuery({
@@ -82,6 +101,9 @@ export default function FormEditorPage() {
       redo: async () => { await formsApi.update(id!, patch as P) },
     })
   }, [updateFormMut, history, id])
+  // Per-user defaults seeded into every new question (Paramètres → Valeurs par défaut).
+  const { prefs: formDefaults } = useModulePrefs<FormDefaults>('forms-defaults', FORM_DEFAULTS)
+
   const createQuestionMut = useMutation({
     mutationFn: (type: QuestionType) => {
       // A new block starts at the selected one: it lands just after it, and the
@@ -99,7 +121,14 @@ export default function FormEditorPage() {
       const q = r.data.question
       // Seed default options for the new question type.
       const opts = defaultOptionsFor(q.question_type)
-      if (Object.keys(opts).length) await formsApi.updateQuestion(id!, q.id, { options: opts })
+      // Content blocks (title, image, section…) are never answered, so the
+      // "required by default" preference must not reach them.
+      const required = formDefaults.defaultRequired && !isContentType(q.question_type)
+      const seed: Partial<Question> = {
+        ...(Object.keys(opts).length ? { options: opts } : {}),
+        ...(required ? { required: true } : {}),
+      }
+      if (Object.keys(seed).length) await formsApi.updateQuestion(id!, q.id, seed)
       setActiveQuestionId(q.id)
       qc.invalidateQueries({ queryKey: ['form', id] })
 
@@ -263,6 +292,118 @@ export default function FormEditorPage() {
     [data, patchForm],
   )
 
+  /**
+   * Block dragging, same shape as the workspace Dock: pointer events (no HTML5
+   * drag image, no DOM clone), and the only feedback is a GHOST RECTANGLE
+   * showing the exact slot the block would land in. A 5px threshold keeps a
+   * plain click on the handle from starting a drag.
+   */
+  const startBlockDrag = (e: React.PointerEvent, q: Question) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const start = { x: e.clientX, y: e.clientY }
+    let moved = false
+    let target: string | null = null
+    dragId.current = q.id
+
+    const cardsNow = () =>
+      ([...document.querySelectorAll('[data-qid]')] as HTMLElement[])
+        .map(el => ({ id: el.dataset.qid as string, el, r: el.getBoundingClientRect() }))
+
+    // Measured once, when the drag starts: the silhouette is computed from the
+    // block itself — height, band width, head height, corner radius — so it
+    // fits whatever this block is (a section's band overhangs its tab and
+    // carries one tool fewer). It cannot change while the block is in flight.
+    const self  = (e.currentTarget as HTMLElement).closest('[data-qid]') as HTMLElement | null
+    const shape = self ? measureBlock(self) : null
+
+    const scroller = findScroller(self)
+    let at = { x: start.x, y: start.y }   // last pointer position, for auto-scroll
+    let raf = 0
+
+    // Where the pointer sits inside the silhouette, so the ghost keeps that
+    // grip instead of jumping its top under the cursor.
+    const grabDy = shape ? start.y - shape.top : 0
+
+    /**
+     * Follows the pointer freely, and only SNAPS when the silhouette comes
+     * within `SNAP` of a slot it could actually take. Away from any slot it
+     * floats, and releasing there drops the move — the block goes nowhere it
+     * was not shown going.
+     */
+    const SNAP = 28
+    const place = (x: number, y: number) => {
+      if (!shape) return
+      void x
+      const free = y - grabDy
+
+      let best: { id: string; top: number; left: number } | null = null
+      let bestDist = Infinity
+      for (const c of cardsNow()) {
+        if (c.id === q.id) continue
+        const top = c.r.top - shape.overhang
+        const d = Math.abs(free - top)
+        if (d < bestDist) { bestDist = d; best = { id: c.id, top, left: c.r.left - shape.bandW } }
+      }
+
+      if (best && bestDist <= SNAP) {
+        target = best.id
+        setGhost({ ...shape, left: best.left, top: best.top, snapped: true })
+      } else {
+        target = null
+        setGhost({ ...shape, top: free, snapped: false })
+      }
+    }
+
+    /**
+     * Auto-scroll: near the top or bottom edge of the scrolling area, the list
+     * creeps in that direction so a block can be dragged past what is on screen.
+     * Speed ramps up as the pointer nears the edge; the ghost is re-placed after
+     * each step because scrolling moves every block under it.
+     */
+    const tick = () => {
+      raf = 0
+      const view = scrollViewport(scroller)
+      const EDGE = 72, MAX = 18
+      let dy = 0
+      if (at.y < view.top + EDGE)         dy = -MAX * Math.min(1, (view.top + EDGE - at.y) / EDGE)
+      else if (at.y > view.bottom - EDGE) dy =  MAX * Math.min(1, (at.y - (view.bottom - EDGE)) / EDGE)
+      if (dy) {
+        const before = scrollTopOf(scroller)
+        scrollByY(scroller, dy)
+        // Stop looping once the edge is reached, otherwise it spins for nothing.
+        if (scrollTopOf(scroller) !== before) {
+          place(at.x, at.y)
+          raf = requestAnimationFrame(tick)
+          return
+        }
+      }
+    }
+
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) <= 5) return
+      moved = true
+      at = { x: ev.clientX, y: ev.clientY }
+      place(at.x, at.y)
+      if (!raf) raf = requestAnimationFrame(tick)
+    }
+
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (raf) cancelAnimationFrame(raf)
+      document.body.style.cursor = ''
+      setGhost(null)
+      if (moved) draggedAt.current = Date.now()
+      if (moved && target) onDrop(target)
+      dragId.current = null
+    }
+
+    document.body.style.cursor = 'grabbing'
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   // Native drag & drop reorder.
   const onDrop = (targetId: string) => {
     const src = dragId.current
@@ -273,7 +414,67 @@ export default function FormEditorPage() {
     if (from < 0 || to < 0) return
     ids.splice(to, 0, ids.splice(from, 1)[0])
     applyOrder(ids.map((qid, i) => ({ id: qid, position: i })))
+    // The block the user just moved stays selected: it is what they are working
+    // on, and its band is how they would move it again.
+    setActiveQuestionId(src)
   }
+
+  const publicUrl = () => `${location.origin}/forms/public/${form?.public_token ?? ''}`
+
+  const copyPublicLink = async () => {
+    await navigator.clipboard.writeText(publicUrl())
+    await confirm({ title: 'Lien copié', message: publicUrl(), confirmLabel: 'Fermer' })
+  }
+
+  /** No collaborator backend yet: sending the form is what we can offer today. */
+  const shareForm = async () => {
+    const url = publicUrl()
+    if (navigator.share) { await navigator.share({ title: form?.title ?? 'Formulaire', url }).catch(() => {}); return }
+    window.open(`mailto:?subject=${encodeURIComponent(plainText(form?.title) || 'Formulaire')}&body=${encodeURIComponent(url)}`, '_blank', 'noopener')
+  }
+
+  /** Whole-form actions offered beside the Publier button. */
+  const formActions: MenuItem[] = [
+    {
+      type: 'action', label: 'Créer une copie', icon: <Copy size={15} />,
+      onClick: () => { void formsApi.duplicate(id!).then(r => { window.location.href = `/forms/${r.data.form.id}/edit` }) },
+    },
+    {
+      type: 'action', label: 'Préremplir le formulaire', icon: <FileInput size={15} />,
+      onClick: () => window.open(`/forms/public/${form?.public_token ?? ''}?prefill=1`, '_blank', 'noopener'),
+    },
+    {
+      type: 'action', label: 'Intégrer le code HTML', icon: <Code2 size={15} />,
+      onClick: () => { void (async () => {
+        const url = `${location.origin}/forms/public/${form?.public_token ?? ''}`
+        await navigator.clipboard.writeText(
+          `<iframe src="${url}" width="640" height="800" frameborder="0" marginheight="0" marginwidth="0">Chargement…</iframe>`)
+        await confirm({ title: 'Code copié', message: "Le code d'intégration a été copié dans le presse-papiers.", confirmLabel: 'Fermer' })
+      })() },
+    },
+    { type: 'action', label: 'Imprimer', icon: <Printer size={15} />, onClick: () => window.print() },
+    { type: 'separator' },
+    {
+      type: 'action',
+      label: form?.published_at ? 'Annuler la publication' : 'Publier le formulaire',
+      icon: <Send size={15} />,
+      onClick: () => { formsApi.publish(id!, !form?.published_at).then(() => qc.invalidateQueries({ queryKey: ['form', id] })) },
+    },
+    { type: 'separator' },
+    {
+      type: 'action', label: 'Placer dans la corbeille', icon: <Trash2 size={15} />, danger: true,
+      onClick: () => { void (async () => {
+        const ok = await confirm({
+          title: 'Placer dans la corbeille ?',
+          message: 'Le formulaire pourra être restauré depuis la corbeille.',
+          confirmLabel: 'Placer dans la corbeille', variant: 'danger',
+        })
+        if (!ok) return
+        await formsApi.trash(id!)
+        window.location.href = '/forms'
+      })() },
+    },
+  ]
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -321,6 +522,13 @@ export default function FormEditorPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowThemePicker(v => !v)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Thème" aria-label="Thème">
+              <Palette size={18} />
+            </button>
+            <a href={`/forms/public/${form.public_token}?preview=1`} target="_blank" rel="noopener noreferrer"
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Aperçu" aria-label="Aperçu">
+              <Eye size={18} />
+            </a>
             <button onClick={() => { void history.undo() }} disabled={!history.canUndo}
               className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 disabled:opacity-30 disabled:hover:bg-transparent"
               title="Annuler (Ctrl+Z)" aria-label="Annuler">
@@ -331,26 +539,63 @@ export default function FormEditorPage() {
               title="Rétablir (Ctrl+Maj+Z)" aria-label="Rétablir">
               <Redo2 size={18} />
             </button>
-            <button onClick={() => setShowThemePicker(v => !v)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Thème">
-              <div className="w-4 h-4 rounded-full border-2 border-white shadow" style={{ backgroundColor: color }} />
+            <button onClick={() => { void copyPublicLink() }}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Copier le lien" aria-label="Copier le lien">
+              <Link2 size={18} />
             </button>
-            <a href={`/forms/public/${form.public_token}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Aperçu"><Eye size={18} /></a>
+            <button onClick={() => { void shareForm() }}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Envoyer le formulaire" aria-label="Envoyer le formulaire">
+              <Share size={18} />
+            </button>
+            {/* Collaborators, like office's editors: people who may edit the form. */}
+            <button onClick={() => { void openShare?.({
+                target: { moduleId: 'forms', id: id! },
+                api: {
+                  list:   collaboratorsApi.listCollaborators,
+                  add:    (fid, uid, p) => collaboratorsApi.addCollaborator(fid, uid, p as 'view' | 'edit'),
+                  update: (fid, uid, p) => collaboratorsApi.updateCollaborator(fid, uid, p as 'view' | 'edit'),
+                  remove: collaboratorsApi.removeCollaborator,
+                  searchRecipients: collaboratorsApi.searchRecipients,
+                },
+                title: plainText(form.title) || 'Formulaire',
+                permissions: ['edit', 'view'],
+                permissionLabel: p => (p === 'edit' ? 'Éditeur' : 'Lecteur'),
+                link: publicUrl(),
+                linkAccess: {
+                  label: 'Vue Éditeur',
+                  value: form.settings.editorLinkAccess ?? 'restricted',
+                  onChange: v => updateFormMut.mutate({
+                    settings: { editorLinkAccess: v } as Parameters<typeof formsApi.update>[1]['settings'],
+                  }),
+                  options: [
+                    { value: 'restricted', label: 'Limité', hint: "Seules les personnes avec accès peuvent l'ouvrir à l'aide du lien" },
+                    { value: 'link',       label: 'Tous les utilisateurs qui ont le lien', hint: "Toute personne disposant du lien peut l'ouvrir" },
+                  ],
+                },
+              }) }}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" title="Partager avec des personnes" aria-label="Partager avec des personnes">
+              <UserPlus size={18} />
+            </button>
             <button onClick={() => { formsApi.publish(id!, !form.published_at).then(() => qc.invalidateQueries({ queryKey: ['form', id] })) }}
               className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-full" style={{ backgroundColor: color }}>
               <Send size={14} /> {form.published_at ? 'Publié' : 'Publier'}
             </button>
+            <button onClick={e => formMenu.open(e)} aria-label="Plus d'actions" title="Plus d'actions"
+              className="w-9 h-9 flex items-center justify-center rounded-full text-gray-600 hover:bg-gray-100">
+              <MoreVertical size={18} />
+            </button>
+            {formMenu.pos && <MenuDropdown pos={formMenu.pos} items={formActions} onClose={formMenu.close} />}
           </div>
         </div>
 
-        {showThemePicker && (
-          <ThemePanel form={form} color={color} onClose={() => setShowThemePicker(false)}
-            onUpdate={patch => updateFormMut.mutate(patch)} />
-        )}
       </div>
 
-      {/* Content */}
+      {/* Content, with the theme panel docked on its right when open. */}
+      <div className="flex-1 flex min-h-0">
       <div className="flex-1 max-w-3xl mx-auto w-full py-6 px-4 relative"
         onClick={e => {
+          // Ignore the click that closes a drag; it is not a click-away.
+          if (Date.now() - draggedAt.current < 300) return
           // Clicking outside any question card drops the selection.
           if (!(e.target as HTMLElement).closest('[data-question-card]')) setActiveQuestionId(null)
         }}>
@@ -371,11 +616,12 @@ export default function FormEditorPage() {
             <FormHeaderImage form={form} color={color} onChanged={() => qc.invalidateQueries({ queryKey: ['form', id] })} />
 
             {groupIntoSections(questions).length > 1 && (
-              <SectionTab index={1} total={groupIntoSections(questions).length} color={color} />
+              <SectionTab index={1} total={groupIntoSections(questions).length} color={color}
+                onSelect={() => setActiveQuestionId(FORM_CARD_ID)} />
             )}
             <div data-question-card
               data-section-block="0"
-              className="rounded-xl overflow-hidden bg-white shadow-sm mb-4 transition-all"
+              className="rounded-xl overflow-hidden bg-white mb-4 transition-all"
               style={{
                 ...(groupIntoSections(questions).length > 1 ? { borderTopLeftRadius: 0 } : {}),
                 ...(activeQuestionId === FORM_CARD_ID
@@ -386,7 +632,7 @@ export default function FormEditorPage() {
               <div className="h-2.5 w-full" style={{ backgroundColor: color }} />
               <div className="px-6 py-5 relative">
                 {groupIntoSections(questions).length > 1 && (
-                  <div className="absolute top-4 right-4">
+                  <div className="absolute top-4 right-4 z-10">
                     <SectionMenu
                       canMergeUp={false}
                       canMoveUp={false}
@@ -415,16 +661,15 @@ export default function FormEditorPage() {
                 <div key={grp.key} data-section-block={gi}>
                   {/* Section 1's tab already sits on the form title card above. */}
                   {all.length > 1 && gi > 0 && (
-                    <SectionTab index={gi + 1} total={all.length} color={color} />
+                    <SectionTab index={gi + 1} total={all.length} color={color}
+                      welded={railOut && activeQuestionId === grp.items[0]?.id}
+                      onSelect={() => setActiveQuestionId(grp.items[0]?.id ?? null)} />
                   )}
                   <div className="space-y-3">
                   {grp.items.map(q => (
                 <div key={q.id}
                   data-question-card
-                  draggable
-                  onDragStart={() => { dragId.current = q.id }}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={() => onDrop(q.id)}>
+                  data-qid={q.id}>
                   <QuestionCard
                     menu={q.question_type === 'section' ? (
                       <SectionMenu
@@ -439,6 +684,7 @@ export default function FormEditorPage() {
                       />
                     ) : undefined}
                     question={q}
+                    onDragHandle={e => startBlockDrag(e, q)}
                     isActive={activeQuestionId === q.id}
                     primaryColor={color}
                     quizMode={quizMode}
@@ -465,7 +711,16 @@ export default function FormEditorPage() {
           <ConfirmDialog {...confirmState} onConfirm={handleConfirm} onCancel={handleCancel} />
         )}
 
-        {showImport && (
+        {/* Ghost = the dragged block's exact outline, shown over the slot it
+          would land in. Same idea as the workspace Dock, but the shape is
+          traced rather than boxed: a block with its band is not a rectangle. */}
+      {ghost && (
+        <div className="fixed inset-0 z-[100]" style={{ cursor: 'grabbing' }}>
+          <BlockGhost shape={ghost} color={color} />
+        </div>
+      )}
+
+      {showImport && (
           <ImportQuestionsDialog
             formId={id!} color={color}
             onClose={() => setShowImport(false)}
@@ -475,7 +730,17 @@ export default function FormEditorPage() {
 
         {activeTab === 'responses' && <ResponsesTab formId={id!} form={form} color={color} questions={questions} />}
         {activeTab === 'logic'     && <LogicEditor formId={id!} questions={questions} color={color} />}
-        {activeTab === 'settings'  && <SettingsTab form={form} color={color} onUpdate={patch => updateFormMut.mutate({ settings: patch as Parameters<typeof formsApi.update>[1]['settings'] })} />}
+        {activeTab === 'settings'  && <FormSettingsTab form={form} color={color} onUpdate={patch => updateFormMut.mutate({ settings: patch as Parameters<typeof formsApi.update>[1]['settings'] })} />}
+      </div>
+
+      {showThemePicker && (
+        <ThemePanel
+          form={form}
+          onClose={() => setShowThemePicker(false)}
+          onUpdate={patch => updateFormMut.mutate({ theme: { ...form.theme, ...patch } as Parameters<typeof formsApi.update>[1]['theme'] })}
+          onHeaderChanged={() => qc.invalidateQueries({ queryKey: ['form', id] })}
+        />
+      )}
       </div>
     </div>
   )
@@ -533,11 +798,29 @@ function SectionMenu({ canMergeUp, canMoveUp, canMoveDown, onDuplicate, onMoveUp
 }
 
 /** "Section 1 sur 2" tab sitting on top of the section's first card. */
-function SectionTab({ index, total, color }: { index: number; total: number; color: string }) {
+/** Height of a section tab — the band overhangs by exactly this much. */
+const SECTION_TAB_H = '2rem'
+
+function SectionTab({ index, total, color, welded, onSelect }: {
+  index: number; total: number; color: string
+  /** The active block's band rises alongside: square that corner so they merge. */
+  welded?: boolean
+  /** Selects the section header the tab belongs to. */
+  onSelect?: () => void
+}) {
   return (
     <div className="flex">
-      <span className="px-4 py-1.5 rounded-t-lg text-sm font-medium text-white"
-        style={{ backgroundColor: color }}>
+      {/* Kept a span rather than a button: it reads as part of the block, and a
+          real button would be flattened by the project-wide no-bold rule. */}
+      <span data-section-tab role="button" tabIndex={0}
+        onClick={e => { e.stopPropagation(); onSelect?.() }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.() } }}
+        className="px-4 rounded-t-lg text-xs font-medium text-white flex items-center cursor-pointer select-none"
+        style={{
+          backgroundColor: color,
+          height: SECTION_TAB_H,
+          ...(welded ? { borderTopLeftRadius: 0 } : {}),
+        }}>
         Section {index} sur {total}
       </span>
     </div>
@@ -757,7 +1040,7 @@ function EditorRail({ color, sectionIndex, onAddQuestion, onImport, onAddTitle, 
 /**
  * Banner at the top of the form. Without an image it is the flat theme-coloured
  * strip; with one it becomes a cover image. Clicking it reveals a small floating
- * toolbar (add/replace, delete) anchored at its bottom-left, as in the mock-up.
+ * toolbar (replace, edit, delete) anchored at its bottom-left.
  */
 function FormHeaderImage({ form, color, onChanged }: {
   form: Form; color: string; onChanged: () => void
@@ -767,11 +1050,13 @@ function FormHeaderImage({ form, color, onChanged }: {
   // Cache-buster: the banner URL is stable, so a replacement would otherwise
   // keep showing the previous image.
   const [bust, setBust]         = useState<string | null>(null)
+  const [editing, setEditing]   = useState(false)
+  const bannerRef               = useRef<HTMLDivElement>(null)
 
   const hasImage = !!form.header_image_path
   const src      = hasImage ? formsApi.headerImageUrl(form.public_token, bust ?? form.updated_at) : null
 
-  const pick = () => { void pickImageFile("Image d'en-tête").then(onFile) }
+  const pick = () => { void pickImageFile({ title: "Image d'en-tête" }).then(onFile) }
 
   const onFile = async (file: File | null | undefined) => {
     if (!file) return
@@ -793,9 +1078,10 @@ function FormHeaderImage({ form, color, onChanged }: {
   return (
     <div className={`relative ${hasImage ? 'mb-8' : 'mb-4'}`}>
       <div
+        ref={bannerRef}
         onClick={() => setSelected(v => !v)}
         title={hasImage ? "Cliquez pour modifier l'en-tête" : "Cliquez pour ajouter une image d'en-tête"}
-        className={`w-full cursor-pointer transition-all rounded-xl overflow-hidden shadow-sm ${hasImage ? 'h-40' : 'h-10'} ${selected ? 'ring-2 ring-inset' : ''}`}
+        className={`w-full cursor-pointer transition-all rounded-xl overflow-hidden ${hasImage ? 'h-40' : 'h-10'} ${selected ? 'ring-2 ring-inset' : ''}`}
         style={{
           backgroundColor: color,
           ...(src ? { backgroundImage: `url(${src})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
@@ -809,22 +1095,35 @@ function FormHeaderImage({ form, color, onChanged }: {
           <div className="fixed inset-0 z-20" onClick={() => setSelected(false)} />
           <div className="absolute left-3 -bottom-4 z-30 flex items-center gap-1 bg-white rounded-full shadow-lg border border-gray-200 px-1.5 py-1"
             onClick={e => e.stopPropagation()}>
-            <HeaderTool label={hasImage ? "Remplacer l'image" : "Ajouter une image"} onClick={pick} disabled={busy}>
-              {hasImage ? <RefreshCw size={16} /> : <ImagePlus size={16} />}
+            <HeaderTool label={hasImage ? "Remplacer l'image d'en-tête" : "Ajouter une image d'en-tête"}
+              onClick={pick} disabled={busy}>
+              <ImagePlus size={16} />
             </HeaderTool>
             {hasImage && (
               <>
-                <HeaderTool label="Choisir une autre image" onClick={pick} disabled={busy}>
-                  <ImageIcon size={16} />
+                <HeaderTool label="Modifier l'image d'en-tête"
+                  onClick={() => { setEditing(true); setSelected(false) }} disabled={busy}>
+                  <SlidersHorizontal size={16} />
                 </HeaderTool>
                 <span className="w-px h-5 bg-gray-200" />
-                <HeaderTool label="Supprimer l'image" onClick={() => { void remove() }} disabled={busy} danger>
+                <HeaderTool label="Supprimer l'image d'en-tête" onClick={() => { void remove() }} disabled={busy} danger>
                   <Trash2 size={16} />
                 </HeaderTool>
               </>
             )}
           </div>
         </>
+      )}
+
+      {editing && src && (
+        <HeaderImageEditor
+          src={src}
+          // The frame is locked to the proportions the banner is drawn at.
+          aspect={(bannerRef.current?.clientWidth ?? 736) / (bannerRef.current?.clientHeight ?? 160)}
+          busy={busy}
+          onCancel={() => setEditing(false)}
+          onSave={file => { setEditing(false); void onFile(file) }}
+        />
       )}
     </div>
   )
@@ -844,53 +1143,194 @@ function HeaderTool({ label, onClick, disabled, danger, children }: {
 
 // ── Theme panel ────────────────────────────────────────────────────────────────
 
-function ThemePanel({ form, color, onClose, onUpdate }: {
-  form: Form; color: string; onClose: () => void; onUpdate: (p: Parameters<typeof formsApi.update>[1]) => void
+
+/**
+ * True while the viewport is too narrow for a rail sitting OUTSIDE the block.
+ *
+ * Deliberately measured in JS: a module's `sm:`/`lg:` utilities land in the
+ * `kubuno-module` cascade layer and lose against the host's `utilities`, so a
+ * Tailwind breakpoint would silently never apply here.
+ */
+function useRoomForRail(): boolean {
+  const [wide, setWide] = useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 950px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 950px)')
+    const on = () => setWide(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return wide
+}
+
+/**
+ * Actions of the active block, in a band WELDED to its left edge: same height,
+ * rounded on the outer side only and squared on the inner one, so it reads as
+ * an extension of the card rather than a floating toolbar. The tools sit at the
+ * bottom of the band, where they used to live inside the block.
+ *
+ * Below the breakpoint there is no room outside the card, so the same actions
+ * fold back INTO the block as a horizontal bar.
+ */
+function BlockRail({ color, overhang, onDragHandle, onDuplicate, onDelete }: {
+  color: string
+  /** Rises above the card by this much, to meet a section tab sitting on top. */
+  overhang?: string
+  /** Pointer-down on the grip: starts dragging the block. */
+  onDragHandle?: (e: React.PointerEvent) => void
+  /** Omitted where duplicating makes no sense — a section, for one. */
+  onDuplicate?: () => void
+  onDelete: () => void
 }) {
+  const wide = useRoomForRail()
+
+  /** On the coloured band the icons go white; folded back inside, they stay grey. */
+  const Tool = ({ label, danger, onClick, children }: {
+    label: string; danger?: boolean; onClick?: () => void; children: React.ReactNode
+  }) => (
+    <button type="button" title={label} aria-label={label} onClick={onClick}
+      className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+        wide
+          ? 'text-white/90 hover:text-white hover:bg-white/20'
+          : danger ? 'text-gray-500 hover:text-red-600 hover:bg-red-50' : 'text-gray-500 hover:bg-black/5'
+      }`}>
+      {children}
+    </button>
+  )
+
+  if (!wide) {
+    return (
+      <div className="flex flex-row items-center gap-0.5 px-6 pb-3" onClick={e => e.stopPropagation()}>
+        <span title="Déplacer" aria-label="Déplacer" onPointerDown={onDragHandle}
+          className="w-8 h-8 flex items-center justify-center text-gray-400 cursor-grab touch-none">
+          <GripVertical size={16} />
+        </span>
+        <span className="w-px h-4 bg-gray-200 mx-1" />
+        {onDuplicate && <Tool label="Dupliquer" onClick={onDuplicate}><Copy size={16} /></Tool>}
+        <Tool label="Supprimer" danger onClick={onDelete}><Trash2 size={16} /></Tool>
+      </div>
+    )
+  }
+
   return (
-    <div className="absolute top-14 right-4 z-50 bg-white rounded-xl shadow-xl border border-gray-200 p-4 w-72">
-      <p className="text-sm font-medium text-gray-800 mb-3">Couleur</p>
-      <div className="grid grid-cols-9 gap-1.5 mb-4">
-        {FORM_COLORS.map(c => (
-          <button key={c}
-            onClick={() => onUpdate({ theme: { ...form.theme, primaryColor: c, headerColor: c } as Parameters<typeof formsApi.update>[1]['theme'] })}
-            className="w-7 h-7 rounded-full hover:scale-110 transition-transform border-2"
-            style={{ backgroundColor: c, borderColor: color === c ? 'white' : 'transparent', outline: color === c ? `2px solid ${c}` : 'none', outlineOffset: '2px' }} />
-        ))}
+    // One column welded to the card's left edge: a head as tall as its tools,
+    // then a thin spine. `right-full` leaves no gap to fall through.
+    <div data-block-rail className="absolute right-full bottom-0 w-11 flex flex-col"
+      style={{ top: overhang ? `-${overhang}` : 0 }}>
+      <div
+        data-rail-head
+        className="w-full flex flex-col items-center gap-0.5 py-3"
+        style={{
+          background: color,
+          borderTopLeftRadius: 'var(--radius-xl, 12px)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* The handle leads: it is what the block is grabbed by. */}
+        <span title="Déplacer" aria-label="Déplacer" onPointerDown={onDragHandle}
+          className="w-8 h-8 flex items-center justify-center text-white/90 cursor-grab touch-none">
+          <GripVertical size={16} />
+        </span>
+        <span className="w-4 h-px bg-white/30 my-0.5" />
+        {onDuplicate && <Tool label="Dupliquer" onClick={onDuplicate}><Copy size={16} /></Tool>}
+        <Tool label="Supprimer" danger onClick={onDelete}><Trash2 size={16} /></Tool>
       </div>
-      <p className="text-sm font-medium text-gray-800 mb-2">Police</p>
-      <div className="mb-2">
-        <Dropdown value={form.theme.fontFamily} width="100%" height={34} fontSize={14}
-          options={FONTS.map(f => ({ value: f.value, label: f.label }))}
-          onChange={v => onUpdate({ theme: { ...form.theme, fontFamily: v } as Parameters<typeof formsApi.update>[1]['theme'] })} />
-      </div>
-      <button onClick={onClose} className="w-full mt-2 text-sm text-gray-500 hover:text-gray-700">Fermer</button>
+
+      {/* S-curve down to the spine, in two tangent quarter-circles of 16px:
+          first CONVEX, rounding the head's bottom corner (vertical tangent at
+          the top), then CONCAVE, landing flush on the spine (vertical tangent
+          at the bottom). A single arc would meet the head's vertical edge with
+          a horizontal tangent — the sharp corner this replaces. Together they
+          give up 44px − 12px = 32px of width over 32px of height. */}
+      <div
+        className="w-full h-4 shrink-0"
+        style={{ background: color, borderBottomLeftRadius: '1rem' }}
+        aria-hidden
+      />
+      <div
+        className="w-7 h-4 shrink-0 self-end"
+        style={{
+          background:
+            `radial-gradient(circle at 0 100%, transparent 0 calc(1rem - 0.5px), ${color} 1rem)`,
+        }}
+        aria-hidden
+      />
+
+      {/* Thin spine: keeps the block flagged for its whole height without a
+          wide slab of colour where there is nothing to click. */}
+      <div
+        className="w-3 flex-1 self-end"
+        style={{ background: color, borderBottomLeftRadius: 'var(--radius-xl, 12px)' }}
+        aria-hidden
+      />
     </div>
   )
 }
 
+/**
+ * Nearest ancestor that actually scrolls, or null for the window.
+ *
+ * Resolved at drag start rather than cached: the editor lives inside the host
+ * shell, so whether the list scrolls in a container or in the page depends on
+ * where the module is mounted.
+ */
+function findScroller(el: HTMLElement | null): HTMLElement | null {
+  for (let n = el?.parentElement ?? null; n; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n
+  }
+  return null
+}
+
+/** Visible band of the scrolling area, in viewport coordinates. */
+function scrollViewport(sc: HTMLElement | null): { top: number; bottom: number } {
+  if (!sc) return { top: 0, bottom: window.innerHeight }
+  const r = sc.getBoundingClientRect()
+  return { top: r.top, bottom: r.bottom }
+}
+
+function scrollTopOf(sc: HTMLElement | null): number {
+  return sc ? sc.scrollTop : window.scrollY
+}
+
+function scrollByY(sc: HTMLElement | null, dy: number): void {
+  if (sc) sc.scrollTop += dy
+  else window.scrollBy(0, dy)
+}
+
 // ── Question card ───────────────────────────────────────────────────────────────
 
-function QuestionCard({ question, isActive, primaryColor, quizMode, onClick, onUpdate, onDelete, onDuplicate, menu }: {
+function QuestionCard({ question, isActive, primaryColor, quizMode, onClick, onUpdate, onDelete, onDuplicate, onDragHandle, menu }: {
   question: Question; isActive: boolean; primaryColor: string; quizMode: boolean
   onClick: () => void; onUpdate: (p: Partial<Question>) => void; onDelete: () => void; onDuplicate: () => void
+  onDragHandle?: (e: React.PointerEvent) => void
   /** Section-level ⋮ menu, only for a `section` block. */
   menu?: React.ReactNode
 }) {
   const typeMenu = useMenuDropdown()
   const meta     = getMeta(question.question_type)
+  // Called unconditionally: `isActive && useRoomForRail()` would short-circuit
+  // the hook and break the hook order across renders.
+  const wide     = useRoomForRail()
+  // When the band is welded on the left, the card squares that edge so the two
+  // merge into one shape instead of showing a notch at each corner.
+  const squareLeft = isActive && wide
+    ? { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }
+    : {}
 
   if (question.question_type === 'section') {
     return (
       // The section tab sits on this corner: square it so the two merge.
-      <div className={`rounded-xl bg-white shadow-sm transition-all ${isActive ? 'shadow-md' : 'hover:shadow-md'}`}
+      <div className={'relative rounded-xl bg-white transition-all'}
         style={{
           borderTopLeftRadius: 0,
+          ...squareLeft,
           ...(isActive ? { background: `color-mix(in srgb, ${primaryColor} 6%, white)` } : {}),
         }}
         onClick={onClick}>
+        {isActive && <BlockRail color={primaryColor} overhang={SECTION_TAB_H} onDragHandle={onDragHandle} onDelete={onDelete} />}
         <div className="px-6 py-5 relative">
-          {menu && <div className="absolute top-4 right-4">{menu}</div>}
+          {menu && <div className="absolute top-4 right-4 z-10">{menu}</div>}
           <InlineRichField
             value={question.title} variant="subtitle" color={primaryColor} className="mb-3"
             placeholder="Section sans titre"
@@ -900,21 +1340,17 @@ function QuestionCard({ question, isActive, primaryColor, quizMode, onClick, onU
             placeholder="Description (facultative)"
             onCommit={v => { if (v !== ((question.description as string) ?? '')) onUpdate({ description: v || null }) }} />
         </div>
-        {isActive && (
-          <div className="flex items-center gap-1 px-6 pb-4" onClick={e => e.stopPropagation()}>
-            <button onClick={onDuplicate} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Dupliquer"><Copy size={18} /></button>
-            <button onClick={onDelete} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Supprimer"><Trash2 size={18} /></button>
-            <div className="w-px h-4 bg-gray-200 mx-1" />
-            <GripVertical size={16} className="text-gray-400 cursor-grab" />
-          </div>
-        )}
       </div>
     )
   }
 
   return (
-    <div className={`rounded-xl bg-white shadow-sm transition-all ${isActive ? 'shadow-md' : 'hover:shadow-md'}`}
-      style={isActive ? { background: `color-mix(in srgb, ${primaryColor} 6%, white)` } : {}} onClick={onClick}>
+    <div className={'relative rounded-xl bg-white transition-all'}
+      style={{
+        ...squareLeft,
+        ...(isActive ? { background: `color-mix(in srgb, ${primaryColor} 6%, white)` } : {}),
+      }} onClick={onClick}>
+      {isActive && <BlockRail color={primaryColor} onDragHandle={onDragHandle} onDuplicate={onDuplicate} onDelete={onDelete} />}
       <div className="p-6">
         <div className="flex items-start gap-3 mb-4">
           <div className="flex-1">
@@ -980,21 +1416,13 @@ function QuestionCard({ question, isActive, primaryColor, quizMode, onClick, onU
           : <QuestionPreview question={question} />}
       </div>
 
-      {isActive && (
-        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100" onClick={e => e.stopPropagation()}>
-          <div className="flex items-center gap-1">
-            <button onClick={onDuplicate} className="p-1.5 rounded text-gray-500 hover:bg-gray-100" title="Dupliquer"><Copy size={16} /></button>
-            <button onClick={onDelete} className="p-1.5 rounded text-gray-500 hover:text-red-500 hover:bg-red-50" title="Supprimer"><Trash2 size={16} /></button>
-            <div className="w-px h-4 bg-gray-200 mx-1" />
-            <GripVertical size={16} className="text-gray-400 cursor-grab" />
-          </div>
-          {!isContentType(question.question_type) && (
-            <Toggle
-              label="Requis"
-              checked={question.required}
-              onChange={e => onUpdate({ required: e.target.checked })}
-            />
-          )}
+      {isActive && !isContentType(question.question_type) && (
+        <div className="flex items-center justify-end px-6 py-3 border-t border-gray-100" onClick={e => e.stopPropagation()}>
+          <Toggle
+            label="Requis"
+            checked={question.required}
+            onChange={e => onUpdate({ required: e.target.checked })}
+          />
         </div>
       )}
     </div>
@@ -1047,15 +1475,83 @@ function QuestionPreview({ question }: { question: Question }) {
 
 function ResponsesTab({ formId, form, color, questions }: { formId: string; form: Form; color: string; questions: Question[] }) {
   const [view, setView] = useState<'summary' | 'individual'>('summary')
+  const qc   = useQueryClient()
+  const menu = useMenuDropdown()
+  const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
+  const { prefs, update: updatePrefs } = useModulePrefs<FormsNotifyPrefs>('forms', { notifyOnReply: false })
   const { data: analyticsData } = useQuery({ queryKey: ['forms-analytics', formId], queryFn: () => formsApi.analytics(formId).then(r => r.data) })
   const { data: statsData } = useQuery({ queryKey: ['forms-stats', formId], queryFn: () => formsApi.questionStats(formId).then(r => r.data.stats), enabled: view === 'summary' })
 
+  const total = analyticsData?.total_responses ?? form.response_count
+
+  const responseMenu: MenuItem[] = [
+    {
+      type: 'action',
+      label: 'Recevoir une notification lorsqu\'une réponse est ajoutée',
+      icon: prefs.notifyOnReply ? <BellRing size={15} /> : <Bell size={15} />,
+      onClick: () => { void updatePrefs({ notifyOnReply: !prefs.notifyOnReply }) },
+    },
+    { type: 'separator' },
+    {
+      type: 'action', label: 'Télécharger les réponses (.csv)', icon: <Download size={15} />,
+      disabled: total === 0,
+      onClick: () => window.open(formsApi.exportCsvUrl(formId), '_blank', 'noopener'),
+    },
+    {
+      type: 'action', label: 'Imprimer toutes les réponses', icon: <Printer size={15} />,
+      disabled: total === 0,
+      onClick: () => window.print(),
+    },
+    { type: 'separator' },
+    {
+      type: 'action', label: 'Supprimer toutes les réponses', icon: <Trash2 size={15} />, danger: true,
+      disabled: total === 0,
+      onClick: () => { void (async () => {
+        const ok = await confirm({
+          title: 'Supprimer toutes les réponses ?',
+          message: 'Les ' + total + ' réponses seront définitivement effacées.',
+          confirmLabel: 'Supprimer', variant: 'danger',
+        })
+        if (!ok) return
+        await formsApi.deleteAllResponses(formId)
+        qc.invalidateQueries({ queryKey: ['forms-analytics', formId] })
+        qc.invalidateQueries({ queryKey: ['forms-stats', formId] })
+        qc.invalidateQueries({ queryKey: ['form', formId] })
+      })() },
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="text-3xl font-light text-gray-800 mb-1">{analyticsData?.total_responses ?? form.response_count}</div>
-        <div className="text-sm text-gray-500">réponse{(analyticsData?.total_responses ?? form.response_count) !== 1 ? 's' : ''}</div>
-        {!!analyticsData?.avg_fill_duration_secs && <div className="text-xs text-gray-400 mt-2">Durée moyenne : {Math.round(analyticsData.avg_fill_duration_secs)}s</div>}
+      {/* Header: the count, then the actions that apply to the whole set. */}
+      <div className="bg-white rounded-xl p-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-3xl font-light text-gray-800">
+            {total} réponse{total !== 1 ? 's' : ''}
+          </div>
+          {!!analyticsData?.avg_fill_duration_secs && (
+            <div className="text-sm text-gray-400 mt-1">
+              Durée moyenne : {Math.round(analyticsData.avg_fill_duration_secs)}s
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Tooltip label="Ouvre les réponses dans un nouveau tableur">
+            <a href={formsApi.exportCsvUrl(formId)} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 h-9 rounded-lg text-xs hover:bg-surface-1 transition-colors"
+              style={{ color }}>
+              <Table2 size={16} /> Vers un tableur
+            </a>
+          </Tooltip>
+          <button onClick={e => menu.open(e)} aria-label="Plus d'actions" title="Plus d'actions"
+            className="w-9 h-9 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100">
+            <MoreVertical size={18} />
+          </button>
+          {menu.pos && <MenuDropdown pos={menu.pos} items={responseMenu} onClose={menu.close} />}
+          {confirmState && (
+            <ConfirmDialog {...confirmState} onConfirm={handleConfirm} onCancel={handleCancel} />
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -1066,11 +1562,13 @@ function ResponsesTab({ formId, form, color, questions }: { formId: string; form
             {v === 'summary' ? 'Résumé' : 'Individuel'}
           </button>
         ))}
-        <a href={formsApi.exportCsvUrl(formId)} target="_blank" rel="noopener noreferrer"
-          className="ml-auto px-4 py-1.5 text-sm rounded-full border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
-          <BarChart2 size={14} /> Export CSV
-        </a>
       </div>
+
+      {total === 0 && (
+        <div className="bg-white rounded-xl p-8 text-center text-xs text-gray-500">
+          Aucune réponse. {form.published_at ? 'Partagez votre formulaire' : 'Publiez votre formulaire'} pour commencer à en recevoir.
+        </div>
+      )}
 
       {view === 'summary' && statsData?.map(stat => (
         <div key={stat.question_id} className="bg-white rounded-xl border border-gray-200 p-6">
@@ -1173,75 +1671,3 @@ function IndividualResponseView({ formId, questions, color }: { formId: string; 
 
 // ── Settings tab ────────────────────────────────────────────────────────────────
 
-function SettingsTab({ form, color, onUpdate }: { form: Form; color: string; onUpdate: (s: Partial<Form['settings']>) => void }) {
-  const s = form.settings
-  const mode = s.displayMode ?? 'one_at_a_time'
-
-  return (
-    <div className="space-y-4">
-      {/* Présentation */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-        <h3 className="text-base font-medium text-gray-800">Présentation</h3>
-        <div>
-          <p className="text-sm text-gray-700 mb-2">Mode d'affichage</p>
-          <div className="grid grid-cols-2 gap-3">
-            {([
-              { id: 'one_at_a_time', label: 'Une question à la fois', desc: 'Style Typeform, immersif' },
-              { id: 'classic',       label: 'Toutes les questions',   desc: 'Style classique, défilement' },
-            ] as const).map(opt => (
-              <button key={opt.id} onClick={() => onUpdate({ displayMode: opt.id })}
-                className="text-left rounded-xl border-2 p-3 transition-colors"
-                style={{ borderColor: mode === opt.id ? color : '#e5e7eb' }}>
-                <div className="text-sm font-medium text-gray-800">{opt.label}</div>
-                <div className="text-xs text-gray-500">{opt.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-        <SettingToggle label="Afficher la barre de progression" value={s.showProgressBar} onChange={v => onUpdate({ showProgressBar: v })} />
-      </div>
-
-      {/* Quiz */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-        <div className="flex items-center gap-2"><Trophy size={18} style={{ color }} /><h3 className="text-base font-medium text-gray-800">Mode quiz</h3></div>
-        <SettingToggle label="Activer le quiz (points et bonnes réponses)" value={!!s.quizMode} onChange={v => onUpdate({ quizMode: v })} />
-        {s.quizMode && <SettingToggle label="Afficher le score immédiatement au répondant" value={s.showResultImmediately ?? true} onChange={v => onUpdate({ showResultImmediately: v })} />}
-      </div>
-
-      {/* Réponses */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-        <h3 className="text-base font-medium text-gray-800">Réponses</h3>
-        <SettingToggle label="Collecter les adresses e-mail" value={s.collectEmail} onChange={v => onUpdate({ collectEmail: v })} />
-        <SettingToggle label="Limiter à une réponse par personne" value={s.limitToOneResponse} onChange={v => onUpdate({ limitToOneResponse: v })} />
-        <SettingToggle label="Accepter les réponses" value={s.acceptingResponses} onChange={v => onUpdate({ acceptingResponses: v })} />
-
-        <div className="pt-2">
-          <label className="text-sm font-medium text-gray-700 block mb-1">Message de confirmation</label>
-          <textarea defaultValue={s.confirmationMessage} onBlur={e => onUpdate({ confirmationMessage: e.target.value })} rows={2}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:border-blue-500 outline-none resize-none" />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-700 block mb-1">Nombre maximum de réponses</label>
-          <input type="number" defaultValue={s.maxResponses ?? ''} onBlur={e => onUpdate({ maxResponses: e.target.value ? parseInt(e.target.value) : null })}
-            placeholder="Illimité" className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 w-40 focus:border-blue-500 outline-none" />
-        </div>
-        <DatePicker label="Date de clôture" mode="datetime"
-          value={s.closeDate ? new Date(s.closeDate).toISOString().slice(0, 16) : null}
-          onChange={v => onUpdate({ closeDate: v ? new Date(v).toISOString() : null })} clearable />
-        <div>
-          <label className="text-sm font-medium text-gray-700 block mb-1">URL Webhook (notification par réponse)</label>
-          <input type="url" defaultValue={s.webhookUrl ?? ''} onBlur={e => onUpdate({ webhookUrl: e.target.value || null })}
-            placeholder="https://example.com/webhook" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:border-blue-500 outline-none" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SettingToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="py-1">
-      <Toggle label={label} checked={value} onChange={e => onChange(e.target.checked)} />
-    </div>
-  )
-}

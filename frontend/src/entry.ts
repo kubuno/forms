@@ -3,6 +3,8 @@ import { lazy } from 'react'
 import { RouteRegistry, WaffleAppRegistry, ModuleSettingsRegistry, useToolbarStore, useSearchStore, SDK_VERSION } from '@kubuno/sdk'
 import { ClipboardList } from 'lucide-react'
 import './index.css'
+import { ShareRegistry } from './shareSdk'
+import { RespondentAccess, PublishNotice, EditorsMaySharePref } from './FormShareSections'
 
 export const sdkVersion = SDK_VERSION
 
@@ -13,6 +15,14 @@ export function register() {
 
   // The header gear button opens the per-user Forms settings while in /forms.
   ModuleSettingsRegistry.register('forms')
+
+  // Forms' own sections inside the core share dialog.
+  ShareRegistry?.add({ id: 'forms-respondent-access', moduleId: 'forms', order: 10,
+    Component: RespondentAccess })
+  ShareRegistry?.add({ id: 'forms-publish-notice', moduleId: 'forms', slot: 'notice',
+    Component: PublishNotice })
+  ShareRegistry?.add({ id: 'forms-editor-share-pref', moduleId: 'forms', slot: 'settings',
+    label: 'Accès', Component: EditorsMaySharePref })
 
   useToolbarStore.getState().register({
     moduleId:    'forms',

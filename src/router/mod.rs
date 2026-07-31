@@ -7,7 +7,7 @@ use axum::{
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
-    handlers::{analytics, export, forms, health, public, questions, responses, rules, uploads},
+    handlers::{analytics, collaborators, export, forms, health, public, questions, responses, rules, uploads},
     middleware::require_auth,
     state::AppState,
 };
@@ -24,6 +24,10 @@ pub fn build(state: AppState) -> Router {
         .route("/forms/:id/duplicate",                        post(forms::duplicate))
         .route("/forms/:id/publish",                          post(forms::publish))
         // Questions
+        .route("/recipients",                                 get(collaborators::search_recipients))
+        .route("/forms/:id/rotate-token",                     post(forms::rotate_token))
+        .route("/forms/:id/collaborators",                    get(collaborators::list).post(collaborators::add))
+        .route("/forms/:id/collaborators/:user_id",           patch(collaborators::update).delete(collaborators::remove))
         .route("/forms/:id/questions",                        get(questions::list).post(questions::create))
         .route("/forms/:id/questions/reorder",                patch(questions::reorder))
         .route("/forms/:id/questions/:qid",                   patch(questions::update).delete(questions::delete))

@@ -30,3 +30,31 @@ export function useModulePrefs<T extends Record<string, unknown>>(
 
   return { prefs, update }
 }
+
+/**
+ * Per-user defaults seeded into new forms and questions.
+ *
+ * `type`, not `interface`: only a type alias gets the implicit index signature
+ * that `useModulePrefs<T extends Record<string, unknown>>` requires.
+ */
+/** How e-mail addresses are collected on new forms. */
+export type CollectEmailMode = 'none' | 'verified' | 'responder'
+
+export type FormDefaults = {
+  defaultCollectEmail: CollectEmailMode
+  defaultRequired:     boolean
+}
+
+export const FORM_DEFAULTS: FormDefaults = {
+  defaultCollectEmail: 'none',
+  defaultRequired:     false,
+}
+
+/**
+ * Reads the stored default, tolerating the boolean this setting used to be:
+ * preferences already saved would otherwise land on the dropdown as `true`.
+ */
+export function collectEmailMode(raw: unknown): CollectEmailMode {
+  if (raw === 'verified' || raw === 'responder' || raw === 'none') return raw
+  return raw === true ? 'responder' : 'none'
+}
