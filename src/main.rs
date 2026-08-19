@@ -19,6 +19,23 @@ struct Manifest {
     /// Declarative settings manifest pushed to the core at registration.
     #[serde(default)]
     settings:      Vec<SettingDefRaw>,
+    /// Pages the admin panel is split into (`[[setting_groups]]`).
+    #[serde(default)]
+    setting_groups: Vec<SettingGroupRaw>,
+}
+
+/// One `[[setting_groups]]` entry of module.toml, forwarded verbatim. `id` is a
+/// STABLE, UNTRANSLATED slug: it travels in the URL of the admin page.
+#[derive(Deserialize, Serialize)]
+struct SettingGroupRaw {
+    id:          String,
+    label:       String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon:        Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    position:    Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
 }
 
 /// One `[[settings]]` entry from module.toml. Serialized verbatim into the
@@ -38,8 +55,20 @@ struct SettingDefRaw {
     description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     category:    Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    group:       Option<String>,
     #[serde(default)]
     public:      bool,
+    #[serde(default)]
+    advanced:    bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    risk:        Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    min:         Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max:         Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unit:        Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -163,10 +192,48 @@ async fn main() -> Result<()> {
             .context("Migrations")?;
     }
 
+    // Instance settings: compiled defaults, then one read from the core so the
+    // first submissions and the retention worker see the administrator's values.
+    let http = Client::new();
+    let instance = Arc::new(std::sync::RwLock::new(
+        kubuno_forms::config::instance::InstanceConfig::default(),
+    ));
+    if let Some(cfg) = kubuno_forms::config::instance::fetch(
+        &http, &settings.core.url, &settings.core.internal_secret,
+    ).await {
+        if let Ok(mut w) = instance.write() { *w = cfg; }
+    }
+
     let state = AppState {
         db:       pool,
         settings: Arc::new(settings.clone()),
+        instance: instance.clone(),
     };
+
+    // Instance-settings refresher: an admin edit takes effect within a minute.
+    {
+        let http_r     = http.clone();
+        let settings_r = settings.clone();
+        let instance_r = instance.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                if let Some(cfg) = kubuno_forms::config::instance::fetch(
+                    &http_r, &settings_r.core.url, &settings_r.core.internal_secret,
+                ).await {
+                    if let Ok(mut w) = instance_r.write() { *w = cfg; }
+                }
+            }
+        });
+    }
+
+    // Response retention worker: purges responses older than the retention window.
+    {
+        let retention_state = state.clone();
+        tokio::spawn(async move {
+            kubuno_forms::services::retention::run_retention_worker(retention_state).await;
+        });
+    }
 
     // Créer les dossiers de stockage
     tokio::fs::create_dir_all(&settings.storage.local_path)
@@ -268,6 +335,9 @@ async fn register_with_core(http: &Client, settings: &Settings) {
     let settings_schema: Value = manifest.as_ref()
         .map(|m| serde_json::to_value(&m.settings).unwrap_or_else(|_| json!([])))
         .unwrap_or_else(|| json!([]));
+    let setting_groups: Value = manifest.as_ref()
+        .map(|m| serde_json::to_value(&m.setting_groups).unwrap_or_else(|_| json!([])))
+        .unwrap_or_else(|| json!([]));
 
     let payload = json!({
         "module_id":         "forms",
@@ -280,6 +350,7 @@ async fn register_with_core(http: &Client, settings: &Settings) {
         "sidebar_items":     sidebar_items,
         "subscribed_events": subscribed_events,
         "settings_schema":   settings_schema,
+        "setting_groups":    setting_groups,
     });
 
     for attempt in 1u32.. {

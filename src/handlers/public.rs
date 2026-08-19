@@ -123,8 +123,8 @@ pub async fn submit(
     let form = load_public_form(&state, &token).await?;
     check_accepting(&form)?;
 
-    // Anti-spam: cooldown between submissions from the same IP.
-    let cooldown = state.settings.forms.submission_cooldown_secs as i64;
+    // Anti-spam: cooldown between submissions from the same IP (instance setting).
+    let cooldown = state.instance().submission_cooldown_secs;
     if cooldown > 0 {
         let ip = addr.ip().to_string();
         let recent: i64 = sqlx::query_scalar(

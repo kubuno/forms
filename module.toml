@@ -35,9 +35,29 @@ section  = "main"
 # instance-level rows (scope global|overridable) into core.settings and renders
 # them editable inside the admin console (scope global → admin only, instance-wide).
 
+# ── Admin panel pages ─────────────────────────────────────────────────────────
+# NOTE: "notify_on_submit"/"notify_email" were REMOVED — forms has no email
+# sending path, so they had no point of application (decorative). Re-add them
+# only once an outbound notification channel exists.
+
+[[setting_groups]]
+id          = "limits"
+label       = "Limites"
+icon        = "SlidersHorizontal"
+position    = 1
+description  = "Les plafonds appliqués à un formulaire : nombre de questions et taille des fichiers importés."
+
+[[setting_groups]]
+id          = "responses"
+label       = "Réponses"
+icon        = "Inbox"
+position    = 2
+description  = "L'anti-spam à la soumission et la durée de conservation des réponses."
+
 [[settings]]
 key     = "max_questions"
 scope   = "global"
+group   = "limits"
 type    = "int"
 default = 200
 label   = "Nombre maximal de questions par formulaire"
@@ -46,6 +66,7 @@ description = "Limite le nombre total de questions (y compris les sections) dans
 [[settings]]
 key     = "max_file_upload_mb"
 scope   = "global"
+group   = "limits"
 type    = "int"
 default = 10
 label   = "Taille maximale des fichiers importés (Mo)"
@@ -54,6 +75,7 @@ description = "Limite la taille de chaque fichier joint dans les questions de ty
 [[settings]]
 key     = "response_retention_days"
 scope   = "global"
+group   = "responses"
 type    = "int"
 default = 0
 label   = "Durée de conservation des réponses (jours)"
@@ -62,27 +84,8 @@ description = "Nombre de jours avant suppression automatique des réponses. Mett
 [[settings]]
 key     = "submission_cooldown_secs"
 scope   = "global"
+group   = "responses"
 type    = "int"
 default = 30
 label   = "Délai anti-spam entre deux soumissions (secondes, par IP)"
 description = "Temps minimal entre deux soumissions consécutives depuis la même adresse IP. Mettre à 0 pour désactiver."
-
-[[settings]]
-key     = "notify_on_submit"
-scope   = "global"
-type    = "bool"
-default = false
-label   = "Notification par email à chaque réponse"
-description = "Envoie un email à l'adresse configurée lorsqu'une nouvelle réponse est soumise (tous formulaires confondus)."
-
-[[settings]]
-key     = "notify_email"
-scope   = "global"
-type    = "string"
-default = ""
-label   = "Adresse email de notification"
-description = "Email qui reçoit les notifications de soumission. Laissez vide pour utiliser l'adresse de l'administrateur système."
-
-[events]
-subscribed = ["UserDeleted"]
-publishes  = ["FormResponseReceived", "FormCreated"]

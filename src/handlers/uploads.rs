@@ -37,7 +37,7 @@ pub async fn upload(
     .await?
     .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))?;
 
-    let max_bytes = state.settings.forms.max_file_upload_mb * 1024 * 1024;
+    let max_bytes = state.instance().max_file_upload_mb as u64 * 1024 * 1024;
 
     while let Some(field) = multipart
         .next_field()
@@ -63,7 +63,7 @@ pub async fn upload(
         if data.len() as u64 > max_bytes {
             return Err(FormsError::Validation(format!(
                 "Fichier trop volumineux (max {} Mo)",
-                state.settings.forms.max_file_upload_mb
+                state.instance().max_file_upload_mb
             )));
         }
 
@@ -169,7 +169,7 @@ pub async fn upload_header(
     mut multipart: Multipart,
 ) -> Result<Json<Value>> {
     let form = load_owned_form(&state, form_id, user.id).await?;
-    let max_bytes = state.settings.forms.max_file_upload_mb * 1024 * 1024;
+    let max_bytes = state.instance().max_file_upload_mb as u64 * 1024 * 1024;
 
     while let Some(field) = multipart
         .next_field()
@@ -191,7 +191,7 @@ pub async fn upload_header(
         if data.len() as u64 > max_bytes {
             return Err(FormsError::Validation(format!(
                 "Image trop volumineuse (max {} Mo)",
-                state.settings.forms.max_file_upload_mb
+                state.instance().max_file_upload_mb
             )));
         }
 
@@ -307,7 +307,7 @@ pub async fn upload_image(
     mut multipart: Multipart,
 ) -> Result<Json<Value>> {
     let form = load_owned_form(&state, form_id, user.id).await?;
-    let max_bytes = state.settings.forms.max_file_upload_mb * 1024 * 1024;
+    let max_bytes = state.instance().max_file_upload_mb as u64 * 1024 * 1024;
 
     while let Some(field) = multipart
         .next_field()
@@ -329,7 +329,7 @@ pub async fn upload_image(
         if data.len() as u64 > max_bytes {
             return Err(FormsError::Validation(format!(
                 "Image trop volumineuse (max {} Mo)",
-                state.settings.forms.max_file_upload_mb
+                state.instance().max_file_upload_mb
             )));
         }
 

@@ -20,13 +20,13 @@ const ACCENTS = [
 ]
 
 /** Fonts and sizes offered for the form's typography. */
-const FONTS = ['Roboto Flex', 'DM Sans', 'Inter', 'Georgia', 'Courier New', 'Times New Roman'] as const
+const FONTS = ['Google Sans Text', 'Google Sans', 'Roboto', 'Georgia', 'Courier New', 'Times New Roman'] as const
 const SIZES = [10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40] as const
 
 const DEFAULT_TEXT: Record<'headerText' | 'questionText' | 'bodyText', FormTextStyle> = {
-  headerText:   { font: 'Roboto Flex', size: 24 },
-  questionText: { font: 'Roboto Flex', size: 16 },
-  bodyText:     { font: 'Roboto Flex', size: 14 },
+  headerText:   { font: 'Google Sans', size: 24 },
+  questionText: { font: 'Google Sans Text', size: 16 },
+  bodyText:     { font: 'Google Sans Text', size: 14 },
 }
 
 /** Four background shades derived from the accent, lightest to plain white. */

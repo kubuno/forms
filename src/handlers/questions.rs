@@ -36,6 +36,18 @@ pub async fn create(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
 
+    // Instance cap on the number of questions a single form may hold.
+    let max_q: i64 = state.instance().max_questions;
+    let current: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM forms.questions WHERE form_id = $1")
+        .bind(form_id)
+        .fetch_one(&state.db)
+        .await?;
+    if current >= max_q {
+        return Err(FormsError::Validation(format!(
+            "Ce formulaire a atteint la limite de {max_q} questions."
+        )));
+    }
+
     let qtype = body.question_type.unwrap_or_else(|| "short_text".to_string());
     // Default title follows the kind of block being created.
     let title = body.title.unwrap_or_else(|| match qtype.as_str() {
@@ -242,6 +254,18 @@ pub async fn import(
         return Err(FormsError::Validation(
             "Le formulaire source doit être différent du formulaire cible".into(),
         ));
+    }
+
+    // Instance cap: the batch must not push the form past its question limit.
+    let max_q: i64 = state.instance().max_questions;
+    let current: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM forms.questions WHERE form_id = $1")
+        .bind(form_id)
+        .fetch_one(&state.db)
+        .await?;
+    if current + body.question_ids.len() as i64 > max_q {
+        return Err(FormsError::Validation(format!(
+            "L'import dépasserait la limite de {max_q} questions de ce formulaire."
+        )));
     }
 
     let mut tx = state.db.begin().await?;
