@@ -1,3 +1,4 @@
+import { useConfirm, pickImageFile } from '@kubuno/sdk'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -21,7 +22,6 @@ import { useModulePrefs, FORM_DEFAULTS, type FormDefaults } from './userPrefs'
 /** Only the key this tab touches; the settings page owns the rest. */
 type FormsNotifyPrefs = { notifyOnReply: boolean }
 import { DatePicker, Dropdown, Button, Checkbox, MenuDropdown, useMenuDropdown, Toggle, ConfirmDialog, type MenuItem, Tooltip } from '@ui'
-import { useConfirm, pickImageFile } from '@kubuno/sdk'
 import {
   QUESTION_TYPES, getMeta, defaultOptionsFor, isContentType,
 } from './questionTypes'
@@ -40,6 +40,7 @@ const FORM_COLORS = [
 const FONTS = [
   { label: 'DM Sans (défaut)', value: 'DM Sans, Inter, system-ui, sans-serif' },
   { label: 'Inter',            value: 'Inter, system-ui, sans-serif' },
+  { label: 'Plus Jakarta Sans', value: '"Plus Jakarta Sans", system-ui, sans-serif' },
   { label: 'Georgia (serif)',  value: 'Georgia, "Times New Roman", serif' },
   { label: 'Système',          value: 'system-ui, sans-serif' },
   { label: 'Monospace',        value: '"DM Mono", "Courier New", monospace' },
@@ -514,7 +515,7 @@ export default function FormEditorPage() {
           <div className="flex items-center gap-1">
             {tabs.map(t => (
               <button key={t.key} onClick={() => setActiveTab(t.key)}
-                className={`px-3.5 py-1.5 text-sm rounded-full transition-colors ${activeTab === t.key ? 'text-white font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
+                className={`px-3.5 py-1.5 text-sm rounded-md transition-colors ${activeTab === t.key ? 'text-white font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
                 style={activeTab === t.key ? { backgroundColor: color } : {}}>
                 {t.label}
               </button>
@@ -1557,7 +1558,7 @@ function ResponsesTab({ formId, form, color, questions }: { formId: string; form
       <div className="flex gap-2">
         {(['summary', 'individual'] as const).map(v => (
           <button key={v} onClick={() => setView(v)}
-            className={`px-4 py-1.5 text-sm rounded-full border transition-colors ${view === v ? 'text-white border-transparent' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+            className={`px-4 py-1.5 text-sm rounded-md border transition-colors ${view === v ? 'text-white border-transparent' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
             style={view === v ? { backgroundColor: color, borderColor: color } : {}}>
             {v === 'summary' ? 'Résumé' : 'Individuel'}
           </button>

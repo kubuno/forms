@@ -1,3 +1,4 @@
+import { formatRelative } from '@kubuno/sdk'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -8,9 +9,6 @@ import {
 import { Button, MenuDropdown, type MenuDropdownPos } from '@ui'
 import { formsApi, type FormSummary } from './api'
 import { plainText } from './plainText'
-import { formatDistanceToNow } from 'date-fns'
-import { fr } from 'date-fns/locale'
-
 const FORM_COLORS = [
   '#673ab7', '#db4437', '#e91e63', '#3f51b5',
   '#1a73e8', '#009688', '#4caf50', '#ff9800',
@@ -244,7 +242,7 @@ function FormCard({ form, trashed, onOpen, onDuplicate, onTrash, onRestore, onDe
         </div>
         <p className="text-xs text-text-tertiary mt-0.5">
           <Clock size={10} className="inline mr-1" />
-          {formatDistanceToNow(new Date(form.updated_at), { addSuffix: true, locale: fr })}
+          {formatRelative(new Date(form.updated_at))}
           {form.response_count > 0 && (
             <span className="ml-2">· {form.response_count} rép.</span>
           )}
@@ -274,7 +272,7 @@ function FormListRow({ form, trashed, onOpen, onTrash, onRestore, onDelete }: {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-text-primary truncate">{plainText(form.title)}</p>
           <p className="text-xs text-text-tertiary">
-            {formatDistanceToNow(new Date(form.updated_at), { addSuffix: true, locale: fr })}
+            {formatRelative(new Date(form.updated_at))}
             {form.response_count > 0 && ` · ${form.response_count} réponse${form.response_count > 1 ? 's' : ''}`}
           </p>
         </div>

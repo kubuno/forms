@@ -5,7 +5,7 @@ import { CheckCircle2, ChevronUp, ChevronDown, ArrowRight, Trophy, ArrowLeft, Ey
 import { publicFormsApi, type AnswerInput, type PublicForm, type PublicQuestion, type QuizResult } from './api'
 import QuestionFiller from './QuestionFiller'
 import { computeHidden, resolveJump } from './logic'
-import { isContentType } from './questionTypes'
+import { isContentType, hasFloatingLabel } from './questionTypes'
 
 // ── Page entrypoint ──────────────────────────────────────────────────────────
 
@@ -475,13 +475,18 @@ function ClassicShell({ form, token, paged = false }: { form: PublicForm; token:
               </div>
             )
           }
+          const floatingLabel = hasFloatingLabel(q.question_type)
           return (
             <div key={q.id} className={`bg-white rounded-xl border shadow-sm p-6 ${missing.has(q.id) ? 'border-red-300' : 'border-gray-200'}`}>
-              <div className="text-base text-gray-800 mb-1">
-                <span dangerouslySetInnerHTML={{ __html: q.title }} />{q.required && <span className="text-red-500 ml-1">*</span>}
-              </div>
+              {/* Choice A: a field with a Material floating label hosts the title
+                  itself, so the shell prints only the description above it. */}
+              {!floatingLabel && (
+                <div className="text-base text-gray-800 mb-1">
+                  <span dangerouslySetInnerHTML={{ __html: q.title }} />{q.required && <span className="text-red-500 ml-1">*</span>}
+                </div>
+              )}
               {q.description && <p className="text-sm text-gray-500 mb-3"><span dangerouslySetInnerHTML={{ __html: q.description }} /></p>}
-              <div className="mt-3">
+              <div className={floatingLabel ? '' : 'mt-3'}>
                 <QuestionFiller question={q} value={answers[q.id]} onChange={v => setAnswer(q.id, v)} primaryColor={color} token={token} />
               </div>
               {missing.has(q.id) && <p className="text-xs text-red-500 mt-2">Cette question est obligatoire.</p>}

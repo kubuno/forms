@@ -1,9 +1,11 @@
 // Renders the answer input for any question type. Shared by the classic
 // (scroll) and one-at-a-time (Typeform-style) public form shells.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { Star, Heart, Upload, ChevronDown, Check, X, ArrowUp, ArrowDown, FileCheck2, Eraser } from 'lucide-react'
+import { Star, Heart, Upload, ChevronDown, Check, X, ArrowUp, ArrowDown, FileCheck2, Eraser, Mail, Hash, Phone, Link2, User, Building2, MapPin, Users, Cake, type LucideIcon } from 'lucide-react'
+import { getMeta } from './questionTypes'
+import { plainText } from './plainText'
 // Aliased: this file already has a local `Dropdown` (the answer control).
-import { DatePicker, Dropdown as UiDropdown } from '@ui'
+import { DatePicker, Dropdown as UiDropdown, OutlinedField, FieldGroup, PhoneField, DateField, AddressField, type GroupField, type PhoneValue, type DateValue, type AddressValue } from '@ui'
 import VideoBlock from './VideoBlock'
 import { publicFormsApi, type PublicQuestion, type UploadedFile } from './api'
 
@@ -29,13 +31,18 @@ export default function QuestionFiller({ question, value, onChange, primaryColor
   switch (question.question_type) {
     case 'short_text':
     case 'email':
-    case 'phone':
     case 'url':
       return <TextInput {...{ question, value, onChange, primaryColor, large, autoFocus }} />
+    case 'phone': {
+      const pv: PhoneValue = (value && typeof value === 'object')
+        ? (value as PhoneValue)
+        : { country: 'FR', number: typeof value === 'string' ? value : '' }
+      return <PhoneField value={pv} onChange={v => onChange(v)} primaryColor={primaryColor} large={large} withLabel />
+    }
     case 'number':
       return <TextInput {...{ question, value, onChange, primaryColor, large, autoFocus }} numeric />
     case 'long_text':
-      return <LongText {...{ value, onChange, primaryColor, large, autoFocus }} />
+      return <LongText {...{ label: plainText(question.title), required: question.required, value, onChange, primaryColor, large, autoFocus }} />
     case 'multiple_choice':
     case 'dropdown':
       return question.question_type === 'dropdown' && !large
@@ -57,6 +64,17 @@ export default function QuestionFiller({ question, value, onChange, primaryColor
       return <DatePicker mode="date" value={(value as string) || null} onChange={v => onChange(v ?? '')} />
     case 'time':
       return <DatePicker mode="time" value={(value as string) || null} onChange={v => onChange(v ?? '')} />
+    case 'birthday': {
+      const dv: DateValue = (value && typeof value === 'object')
+        ? (value as DateValue) : { day: '', month: '', year: '' }
+      // A birth date cannot be in the future.
+      return <DateField value={dv} onChange={v => onChange(v)} icon={<Cake size={24} strokeWidth={1.8} />} primaryColor={primaryColor} large={large} minYear={1900} maxYear={new Date().getFullYear()} />
+    }
+    case 'address': {
+      const av: AddressValue = (value && typeof value === 'object')
+        ? (value as AddressValue) : { street: '', postal: '', city: '', country: '' }
+      return <AddressField value={av} onChange={v => onChange(v)} primaryColor={primaryColor} large={large} />
+    }
     case 'file_upload':
       return <FileUpload {...{ value, onChange, primaryColor, token }} />
     case 'signature':
@@ -67,12 +85,35 @@ export default function QuestionFiller({ question, value, onChange, primaryColor
     case 'grid_radio':
     case 'grid_checkbox':
       return <GridInput {...{ options: o, value, onChange, primaryColor, multi: question.question_type === 'grid_checkbox' }} />
+    case 'field_group': {
+      const GIcon = GROUP_ICONS[(o?.icon as string)] ?? Users
+      const fields = (o?.fields as GroupField[]) ?? []
+      return (
+        <FieldGroup
+          icon={<GIcon size={24} strokeWidth={1.8} />}
+          fields={fields}
+          value={(value as Record<string, string>) ?? {}}
+          onChange={onChange}
+          primaryColor={primaryColor}
+          large={large}
+        />
+      )
+    }
     default:
       return null
   }
 }
 
 // ── Text inputs ────────────────────────────────────────────────────────────────
+
+// Icons a field group can request by name (stored in options.icon).
+const GROUP_ICONS: Record<string, LucideIcon> = { user: User, building: Building2, address: MapPin, group: Users }
+
+// Leading icon for the outlined field, by text type (email → envelope, like
+// Google's field). Plain short-text carries none.
+const TEXT_ICONS: Partial<Record<string, typeof Mail>> = {
+  email: Mail, url: Link2, phone: Phone, number: Hash,
+}
 
 function TextInput({ question, value, onChange, primaryColor, large, autoFocus, numeric }: {
   question: PublicQuestion; value: unknown; onChange: (v: unknown) => void
@@ -81,40 +122,46 @@ function TextInput({ question, value, onChange, primaryColor, large, autoFocus, 
   const placeholder = (question.options?.placeholder as string)
     || (question.question_type === 'email' ? 'nom@exemple.com'
       : question.question_type === 'url' ? 'https://…'
-      : numeric ? '0' : 'Votre réponse')
+      : numeric ? '0' : undefined)
   const type = numeric ? 'number'
     : question.question_type === 'email' ? 'email'
     : question.question_type === 'url' ? 'url'
     : question.question_type === 'phone' ? 'tel' : 'text'
+  const Icon = TEXT_ICONS[question.question_type]
+  // Choice A: the title becomes the floating label in the COMPACT layout (and
+  // the shell drops the title above). The immersive layout keeps its big title,
+  // so the field carries a generic type label there and no duplicate asterisk.
+  const label = large ? getMeta(question.question_type).label : (plainText(question.title) || 'Réponse')
   return (
-    <input
-      type={type}
-      autoFocus={autoFocus}
+    <OutlinedField
+      label={label}
       value={(value as string) ?? ''}
-      onChange={e => onChange(numeric ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)}
+      onChange={v => onChange(numeric ? (v === '' ? '' : Number(v)) : v)}
+      icon={Icon ? <Icon size={24} strokeWidth={1.8} /> : undefined}
+      type={type}
       placeholder={placeholder}
-      className={large
-        ? 'w-full bg-transparent border-b-2 outline-none py-2 text-2xl text-gray-800 placeholder-gray-300'
-        : 'w-full border-b border-gray-300 focus:border-current outline-none py-1 text-sm text-gray-700 bg-transparent'}
-      style={large ? { borderColor: `${primaryColor}55` } : undefined}
+      primaryColor={primaryColor}
+      required={!large && !!question.required}
+      autoFocus={autoFocus}
+      large={large}
+      inputMode={numeric ? 'numeric' : question.question_type === 'email' ? 'email' : question.question_type === 'phone' ? 'tel' : question.question_type === 'url' ? 'url' : 'text'}
     />
   )
 }
 
-function LongText({ value, onChange, primaryColor, large, autoFocus }: {
-  value: unknown; onChange: (v: unknown) => void; primaryColor: string; large?: boolean; autoFocus?: boolean
+function LongText({ label, required, value, onChange, primaryColor, large, autoFocus }: {
+  label: string; required?: boolean; value: unknown; onChange: (v: unknown) => void; primaryColor: string; large?: boolean; autoFocus?: boolean
 }) {
   return (
-    <textarea
-      autoFocus={autoFocus}
+    <OutlinedField
+      label={large ? getMeta('long_text').label : (label || 'Réponse')}
       value={(value as string) ?? ''}
-      onChange={e => onChange(e.target.value)}
-      rows={large ? 3 : 4}
-      placeholder="Votre réponse"
-      className={large
-        ? 'w-full bg-transparent border-b-2 outline-none py-2 text-xl text-gray-800 placeholder-gray-300 resize-none'
-        : 'w-full border-b border-gray-300 outline-none py-1 text-sm text-gray-700 bg-transparent resize-none'}
-      style={large ? { borderColor: `${primaryColor}55` } : undefined}
+      onChange={v => onChange(v)}
+      primaryColor={primaryColor}
+      required={!large && !!required}
+      autoFocus={autoFocus}
+      large={large}
+      multiline
     />
   )
 }

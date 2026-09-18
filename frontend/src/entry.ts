@@ -1,7 +1,7 @@
+import { RouteRegistry, WaffleAppRegistry, ModuleSettingsRegistry, useToolbarStore, useSearchStore, SDK_VERSION, FaviconRegistry } from '@kubuno/sdk'
 /** Bundle MODULE forms — chargé à l'exécution (cf. vite.module.config). */
 import { lazy } from 'react'
-import { RouteRegistry, WaffleAppRegistry, ModuleSettingsRegistry, useToolbarStore, useSearchStore, SDK_VERSION } from '@kubuno/sdk'
-import { ClipboardList } from 'lucide-react'
+import FormsLogo from './FormsLogo'
 import './index.css'
 import { ShareRegistry } from './shareSdk'
 import { RespondentAccess, PublishNotice, EditorsMaySharePref } from './FormShareSections'
@@ -9,8 +9,11 @@ import { RespondentAccess, PublishNotice, EditorsMaySharePref } from './FormShar
 export const sdkVersion = SDK_VERSION
 
 export function register() {
-  WaffleAppRegistry.register('forms', 'Formulaires', [
-    { id: 'forms', label: 'Formulaires', Icon: ClipboardList, path: '/forms' },
+  // Forms has its own logo: the tab shows it under /forms.
+  FaviconRegistry.register('forms', '/forms-logo.png')
+
+  WaffleAppRegistry.register('forms', 'Forms', [
+    { id: 'forms', label: 'Forms', Icon: FormsLogo, path: '/forms' },
   ])
 
   // The header gear button opens the per-user Forms settings while in /forms.

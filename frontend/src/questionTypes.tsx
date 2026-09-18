@@ -7,6 +7,7 @@ import {
   Calendar, Clock,
   Upload, PenLine, Grid3X3,
   Heading, Minus, Hand, PartyPopper, Image as ImageIcon, Clapperboard,
+  Users, Cake, MapPin,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { QuestionType } from './api'
@@ -45,6 +46,7 @@ export const QUESTION_TYPES: QTypeMeta[] = [
   { value: 'number',     label: 'Nombre',          Icon: Hash,     group: 'text', supportsQuiz: true },
   { value: 'phone',      label: 'Téléphone',       Icon: Phone,    group: 'text' },
   { value: 'url',        label: 'Lien (URL)',      Icon: Link2,    group: 'text' },
+  { value: 'field_group', label: 'Groupe de champs', Icon: Users,   group: 'text' },
   // Choix
   { value: 'multiple_choice', label: 'Choix unique',     Icon: CircleDot,         group: 'choice', hasOptions: true, supportsQuiz: true },
   { value: 'checkbox',        label: 'Cases à cocher',   Icon: CheckSquare,       group: 'choice', hasOptions: true, supportsQuiz: true },
@@ -57,6 +59,8 @@ export const QUESTION_TYPES: QTypeMeta[] = [
   { value: 'rating',        label: 'Notation (étoiles)',   Icon: Star,    group: 'scale', supportsQuiz: true },
   // Date et heure
   { value: 'date', label: 'Date',  Icon: Calendar, group: 'datetime' },
+  { value: 'birthday', label: 'Date de naissance', Icon: Cake, group: 'datetime' },
+  { value: 'address', label: 'Adresse postale', Icon: MapPin, group: 'text' },
   { value: 'time', label: 'Heure', Icon: Clock,    group: 'datetime' },
   // Média
   { value: 'file_upload', label: 'Téléversement de fichier', Icon: Upload,  group: 'media' },
@@ -126,4 +130,15 @@ let _seq = 0
 export function genId(): string {
   _seq += 1
   return `o${Date.now().toString(36)}${_seq.toString(36)}`
+}
+
+// Text types whose ANSWER field carries a Material floating label: the question
+// title lives INSIDE the box (choice A), so the shells must not also print it
+// above. Kept here, next to the registry, so both the filler and the shells agree.
+const FLOATING_LABEL_TYPES = new Set<string>([
+  'short_text', 'long_text', 'email', 'number', 'phone', 'url',
+])
+
+export function hasFloatingLabel(type: string): boolean {
+  return FLOATING_LABEL_TYPES.has(type)
 }

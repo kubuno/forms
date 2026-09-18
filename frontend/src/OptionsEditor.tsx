@@ -1,3 +1,4 @@
+import { api, ModuleServiceRegistry, useModulesStore, pickImageFile } from '@kubuno/sdk'
 // Per-question configuration shown inside an active question card in the editor:
 // choice options, scale settings, ranking, grids, content button labels, and
 // (in quiz mode) points / correct answers / feedback.
@@ -5,7 +6,6 @@ import { useRef, useState } from 'react'
 import { Plus, X, Check, Trophy, HardDrive, Clapperboard, Link2, Search, GripVertical, Image as ImageIcon } from 'lucide-react'
 import { Dropdown, Button, Input, Spinner } from '@ui'
 import { useQuery } from '@tanstack/react-query'
-import { api, ModuleServiceRegistry, useModulesStore, pickImageFile } from '@kubuno/sdk'
 import { formsApi, type Question } from './api'
 import { getMeta, genId } from './questionTypes'
 import { readSource, providerName, type VideoKind, type VideoSource } from './videoSource'

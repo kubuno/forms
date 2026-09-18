@@ -1,8 +1,8 @@
+import { pickImageFile } from '@kubuno/sdk'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { X, Image as ImageIcon, Plus } from 'lucide-react'
 import { FontSizeField, ColorPicker, AnchoredPopover, useAppPickerTheme } from '@ui'
 import { formsApi, type Form, type FormTheme, type FormTextStyle } from './api'
-import { pickImageFile } from '@kubuno/sdk'
 
 /**
  * Theme panel, docked to the right of the editor: typography per text role,
@@ -20,13 +20,13 @@ const ACCENTS = [
 ]
 
 /** Fonts and sizes offered for the form's typography. */
-const FONTS = ['Google Sans Text', 'Google Sans', 'Roboto', 'Georgia', 'Courier New', 'Times New Roman'] as const
+const FONTS = ['Outfit', 'Plus Jakarta Sans', 'Roboto', 'Georgia', 'Courier New', 'Times New Roman'] as const
 const SIZES = [10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40] as const
 
 const DEFAULT_TEXT: Record<'headerText' | 'questionText' | 'bodyText', FormTextStyle> = {
-  headerText:   { font: 'Google Sans', size: 24 },
-  questionText: { font: 'Google Sans Text', size: 16 },
-  bodyText:     { font: 'Google Sans Text', size: 14 },
+  headerText:   { font: 'Outfit', size: 24 },
+  questionText: { font: 'Outfit', size: 16 },
+  bodyText:     { font: 'Outfit', size: 14 },
 }
 
 /** Four background shades derived from the accent, lightest to plain white. */

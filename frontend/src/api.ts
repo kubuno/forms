@@ -79,6 +79,9 @@ export type QuestionType =
   | 'grid_radio' | 'grid_checkbox'
   | 'statement' | 'welcome_screen' | 'thank_you_screen'
   | 'section'
+  | 'field_group'
+  | 'birthday'
+  | 'address'
 
 export interface Question {
   id:                 string
