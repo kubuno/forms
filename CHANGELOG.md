@@ -9,6 +9,12 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ## [Unreleased]
 
+### Changed
+
+- Internal note corrected: when this module starts announcing its events, it
+  will do so over the core's internal interface rather than a
+  PostgreSQL-specific notification. No behaviour changes.
+
 ### Security
 
 - **Database driver updated past an unfixable advisory.** The previous line
