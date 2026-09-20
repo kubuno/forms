@@ -3,7 +3,10 @@
 
 use std::time::Duration;
 
+use chrono::Utc;
 use uuid::Uuid;
+
+use kubuno_db::{params, DbValue};
 
 use crate::state::AppState;
 
@@ -19,34 +22,56 @@ pub async fn run_retention_worker(state: AppState) {
             continue;
         }
 
-        // Delete a bounded batch and learn which forms were affected. Answers and
-        // logic rows fall away through their `ON DELETE CASCADE` on the response.
-        let affected: Vec<Uuid> = sqlx::query_scalar(
-            "WITH del AS (
-                DELETE FROM forms.responses
-                WHERE id IN (
-                    SELECT id FROM forms.responses
-                    WHERE submitted_at < NOW() - make_interval(days => $1)
-                    LIMIT 1000
-                )
-                RETURNING form_id
-             )
-             SELECT DISTINCT form_id FROM del",
-        )
-        .bind(days as i32)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+        // The cutoff is computed in Rust; the CTE `DELETE ... RETURNING` has no
+        // portable form, so a bounded batch of victims is selected first, then
+        // deleted by id. Answers and logic rows fall away through their
+        // `ON DELETE CASCADE` on the response.
+        let cutoff = Utc::now() - chrono::Duration::days(days);
+        let victims: Vec<(Uuid, Uuid)> = state
+            .db
+            .fetch_all_as::<(Uuid, Uuid)>(
+                "SELECT id, form_id FROM forms.responses WHERE submitted_at < $1 \
+                 ORDER BY submitted_at LIMIT 1000",
+                params![cutoff],
+            )
+            .await
+            .unwrap_or_default();
+
+        if victims.is_empty() {
+            continue;
+        }
+
+        let ids: Vec<Uuid> = victims.iter().map(|(id, _)| *id).collect();
+        let mut affected: Vec<Uuid> = victims.iter().map(|(_, f)| *f).collect();
+        affected.sort();
+        affected.dedup();
+
+        let in_list = state.db.backend().in_list(1, ids.len());
+        let delete_params: Vec<DbValue> = ids.iter().map(|id| DbValue::from(*id)).collect();
+        if let Err(e) = state
+            .db
+            .execute(
+                &format!("DELETE FROM forms.responses WHERE id IN ({in_list})"),
+                delete_params,
+            )
+            .await
+        {
+            tracing::error!(error = %e, "Purge de rétention : suppression impossible");
+            continue;
+        }
 
         for form_id in &affected {
-            if let Err(e) = sqlx::query(
-                "UPDATE forms.forms SET response_count = (
-                    SELECT COUNT(*) FROM forms.responses WHERE form_id = $1
-                 ) WHERE id = $1",
-            )
-            .bind(form_id)
-            .execute(&state.db)
-            .await
+            // `form_id` is bound twice ($1 and $2): a placeholder cannot be
+            // reused across the three engines.
+            if let Err(e) = state
+                .db
+                .execute(
+                    "UPDATE forms.forms SET response_count = (
+                        SELECT COUNT(*) FROM forms.responses WHERE form_id = $1
+                     ) WHERE id = $2",
+                    params![*form_id, *form_id],
+                )
+                .await
             {
                 tracing::error!(error = %e, form_id = %form_id, "Purge de rétention : recomptage impossible");
             }

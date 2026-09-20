@@ -1,10 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use kubuno_forms::{config::Settings, router, state::AppState};
+use kubuno_forms::{config::Settings, router, state::AppState, SCHEMA};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -145,52 +144,33 @@ async fn main() -> Result<()> {
     // Sécurité : interdire toute exécution de processus sur l’hôte (voir kubuno-seccomp).
     kubuno_seccomp::lock_down_process_execution("forms");
 
-    // Pool PostgreSQL avec search_path=forms,public
-    let opts = settings.database.connect_options()?
-        .options([("search_path", "forms,public")]);
-    let pool = PgPoolOptions::new()
-        .max_connections(settings.database.max_connections)
-        .min_connections(settings.database.min_connections)
-        .acquire_timeout(settings.database.connect_timeout)
-        .connect_with(opts)
+    // Database pool. The engine (PostgreSQL / MySQL / SQLite) is the
+    // administrator's choice in `[database] engine`, read at run time; `connect`
+    // also creates the module's namespace (PostgreSQL schema, MySQL database, or
+    // the ATTACHed SQLite file).
+    let pool = kubuno_db::connect(&settings.database, SCHEMA)
         .await
-        .context("Connexion PostgreSQL")?;
+        .context("Connexion à la base de données")?;
 
-    // Migrations
+    // Migrations: the set for the pool's engine, kept inside the module's own
+    // namespace (the table PostgreSQL already used through its search_path).
     if settings.database.run_migrations {
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS forms")
-            .execute(&pool)
-            .await
-            .context("Création du schéma forms")?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS forms._sqlx_migrations (
-                version        BIGINT      PRIMARY KEY,
-                description    TEXT        NOT NULL,
-                installed_on   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                success        BOOLEAN     NOT NULL,
-                checksum       BYTEA       NOT NULL,
-                execution_time BIGINT      NOT NULL
-            )"#,
+        kubuno_db::migrations!(
+            "./migrations/postgres",
+            "./migrations/mysql",
+            "./migrations/sqlite",
         )
-        .execute(&pool)
+        .run(&pool, SCHEMA)
         .await
-        .context("Création table forms._sqlx_migrations")?;
-
-        let migration_opts = settings.database.connect_options()?
-            .options([("search_path", "forms,public")]);
-        let migration_pool = PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(settings.database.connect_timeout)
-            .connect_with(migration_opts)
-            .await
-            .context("Pool migration forms")?;
-
-        sqlx::migrate!("./migrations")
-            .run(&migration_pool)
-            .await
-            .context("Migrations")?;
+        .context("Migrations")?;
     }
+
+    // The event outbox (a no-op on PostgreSQL, which uses LISTEN/NOTIFY). Forms
+    // does not publish on the bus yet, but the table has to exist before any
+    // future `events::notify` on MySQL/SQLite.
+    kubuno_db::events::ensure_outbox(&pool, SCHEMA)
+        .await
+        .context("Table d'évènements")?;
 
     // Instance settings: compiled defaults, then one read from the core so the
     // first submissions and the retention worker see the administrator's values.

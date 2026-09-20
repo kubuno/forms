@@ -6,6 +6,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use kubuno_db::params;
+
 use crate::{
     errors::{FormsError, Result},
     handlers::forms::load_owned_form,
@@ -30,25 +32,24 @@ pub async fn list(
     let limit  = q.limit.unwrap_or(50).min(500);
     let offset = q.offset.unwrap_or(0);
 
-    let responses = sqlx::query_as::<_, FormResponse>(
+    let responses = state.db.fetch_all_as::<FormResponse>(
         "SELECT id, form_id, respondent_id, respondent_email, respondent_name,
                 fill_duration_secs, score, max_score, source, submitted_at
          FROM forms.responses
          WHERE form_id = $1
          ORDER BY submitted_at DESC
          LIMIT $2 OFFSET $3",
+        params![form_id, limit, offset],
     )
-    .bind(form_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.db)
     .await?;
 
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM forms.responses WHERE form_id = $1",
+    let total: i64 = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.responses WHERE form_id = $1",
+            state.db.backend().count_bigint("*")
+        ),
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_one(&state.db)
     .await?;
 
     Ok(Json(json!({ "responses": responses, "total": total })))
@@ -61,22 +62,19 @@ pub async fn get(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
 
-    let response = sqlx::query_as::<_, FormResponse>(
+    let response = state.db.fetch_optional_as::<FormResponse>(
         "SELECT id, form_id, respondent_id, respondent_email, respondent_name,
                 fill_duration_secs, score, max_score, source, submitted_at
          FROM forms.responses WHERE id = $1 AND form_id = $2",
+        params![response_id, form_id],
     )
-    .bind(response_id)
-    .bind(form_id)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound(format!("Réponse {response_id}")))?;
 
-    let answers = sqlx::query_as::<_, Answer>(
+    let answers = state.db.fetch_all_as::<Answer>(
         "SELECT * FROM forms.answers WHERE response_id = $1",
+        params![response_id],
     )
-    .bind(response_id)
-    .fetch_all(&state.db)
     .await?;
 
     Ok(Json(json!({ "response": response, "answers": answers })))
@@ -88,19 +86,19 @@ pub async fn delete_one(
     Path((form_id, response_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
-    sqlx::query("DELETE FROM forms.responses WHERE id = $1 AND form_id = $2")
-        .bind(response_id)
-        .bind(form_id)
-        .execute(&state.db)
-        .await?;
-    // Update count
-    sqlx::query(
+    state.db.execute(
+        "DELETE FROM forms.responses WHERE id = $1 AND form_id = $2",
+        params![response_id, form_id],
+    )
+    .await?;
+    // Recompute the cached count. `form_id` is bound twice ($1 and $2) because a
+    // placeholder cannot be reused across the three engines.
+    state.db.execute(
         "UPDATE forms.forms SET response_count = (
             SELECT COUNT(*) FROM forms.responses WHERE form_id = $1
-         ) WHERE id = $1",
+         ) WHERE id = $2",
+        params![form_id, form_id],
     )
-    .bind(form_id)
-    .execute(&state.db)
     .await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -111,19 +109,18 @@ pub async fn delete_all(
     Path(form_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
-    let deleted: i64 = sqlx::query_scalar(
-        "WITH del AS (DELETE FROM forms.responses WHERE form_id = $1 RETURNING id)
-         SELECT COUNT(*) FROM del",
+    // The CTE `DELETE ... RETURNING` has no portable form; a plain DELETE reports
+    // its own affected-row count, which is exactly what was wanted.
+    let deleted = state.db.execute(
+        "DELETE FROM forms.responses WHERE form_id = $1",
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_one(&state.db)
     .await?;
 
-    sqlx::query(
+    state.db.execute(
         "UPDATE forms.forms SET response_count = 0, last_response_at = NULL WHERE id = $1",
+        params![form_id],
     )
-    .bind(form_id)
-    .execute(&state.db)
     .await?;
 
     Ok(Json(json!({ "deleted": deleted })))
@@ -136,33 +133,29 @@ pub async fn get_individual(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
 
-    let response_id: Option<Uuid> = sqlx::query_scalar(
+    let response_id: Option<Uuid> = state.db.fetch_optional_scalar(
         "SELECT id FROM forms.responses WHERE form_id = $1
          ORDER BY submitted_at DESC LIMIT 1 OFFSET $2",
+        params![form_id, index],
     )
-    .bind(form_id)
-    .bind(index)
-    .fetch_optional(&state.db)
     .await?;
 
     let Some(rid) = response_id else {
         return Err(FormsError::NotFound("Réponse introuvable".into()));
     };
 
-    let response = sqlx::query_as::<_, FormResponse>(
+    let response = state.db.fetch_one_as::<FormResponse>(
         "SELECT id, form_id, respondent_id, respondent_email, respondent_name,
                 fill_duration_secs, score, max_score, source, submitted_at
          FROM forms.responses WHERE id = $1",
+        params![rid],
     )
-    .bind(rid)
-    .fetch_one(&state.db)
     .await?;
 
-    let answers = sqlx::query_as::<_, Answer>(
+    let answers = state.db.fetch_all_as::<Answer>(
         "SELECT * FROM forms.answers WHERE response_id = $1",
+        params![rid],
     )
-    .bind(rid)
-    .fetch_all(&state.db)
     .await?;
 
     Ok(Json(json!({ "response": response, "answers": answers, "index": index })))

@@ -5,13 +5,35 @@ use axum::{
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use kubuno_db::dialect::SqlType;
+use kubuno_db::{new_id, params};
+
 use crate::{
     errors::{FormsError, Result},
     handlers::forms::load_owned_form,
     middleware::FormsUser,
     models::form::*,
+    services::repo,
     state::AppState,
 };
+
+/// `COALESCE(MAX(position), -1) + 1` as the next free slot, cast so the result
+/// decodes as `i64` on all three engines (MySQL widens integer arithmetic to
+/// BIGINT, PostgreSQL keeps `int4`), then narrowed back to the column's `i32`.
+async fn next_position(state: &AppState, form_id: Uuid) -> Result<i32> {
+    let expr = state
+        .db
+        .backend()
+        .cast("COALESCE(MAX(position), -1) + 1", SqlType::BigInt);
+    let next: i64 = state
+        .db
+        .fetch_scalar(
+            &format!("SELECT {expr} FROM forms.questions WHERE form_id = $1"),
+            params![form_id],
+        )
+        .await?;
+    Ok(next as i32)
+}
 
 pub async fn list(
     State(state): State<AppState>,
@@ -19,11 +41,10 @@ pub async fn list(
     Path(form_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
-    let questions = sqlx::query_as::<_, Question>(
+    let questions = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1 ORDER BY position ASC",
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_all(&state.db)
     .await?;
     Ok(Json(json!({ "questions": questions })))
 }
@@ -38,10 +59,14 @@ pub async fn create(
 
     // Instance cap on the number of questions a single form may hold.
     let max_q: i64 = state.instance().max_questions;
-    let current: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM forms.questions WHERE form_id = $1")
-        .bind(form_id)
-        .fetch_one(&state.db)
-        .await?;
+    let current: i64 = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.questions WHERE form_id = $1",
+            state.db.backend().count_bigint("*")
+        ),
+        params![form_id],
+    )
+    .await?;
     if current >= max_q {
         return Err(FormsError::Validation(format!(
             "Ce formulaire a atteint la limite de {max_q} questions."
@@ -58,45 +83,20 @@ pub async fn create(
         _                  => "Question sans titre".to_string(),
     });
 
-    let max_pos: Option<i32> = sqlx::query_scalar(
-        "SELECT MAX(position) FROM forms.questions WHERE form_id = $1",
-    )
-    .bind(form_id)
-    .fetch_one(&state.db)
-    .await?;
+    // Inserting in the middle pushes everything at or after that slot down first;
+    // repo::create_question does the shift and the insert in one transaction.
+    let shift = body.position.is_some();
+    let position = match body.position {
+        Some(p) => p,
+        None => next_position(&state, form_id).await?,
+    };
 
-    let position = body.position.unwrap_or_else(|| max_pos.unwrap_or(-1) + 1);
-
-    // Inserting in the middle: push everything from that slot down first, in the
-    // same transaction, so positions stay unique and ordered.
-    let mut tx = state.db.begin().await?;
-    if body.position.is_some() {
-        if let Err(e) = sqlx::query(
-            "UPDATE forms.questions SET position = position + 1
-             WHERE form_id = $1 AND position >= $2",
-        )
-        .bind(form_id)
-        .bind(position)
-        .execute(&mut *tx)
+    let question = repo::create_question(&state.db, form_id, position, shift, &qtype, &title)
         .await
-        {
-            tracing::error!(form_id = %form_id, error = %e, "Décalage des positions échoué");
-            return Err(e.into());
-        }
-    }
-
-    let question = sqlx::query_as::<_, Question>(
-        "INSERT INTO forms.questions (form_id, position, question_type, title)
-         VALUES ($1, $2, $3, $4)
-         RETURNING *",
-    )
-    .bind(form_id)
-    .bind(position)
-    .bind(&qtype)
-    .bind(&title)
-    .fetch_one(&mut *tx)
-    .await?;
-    tx.commit().await?;
+        .map_err(|e| {
+            tracing::error!(form_id = %form_id, error = %e, "Création de question échouée");
+            e
+        })?;
 
     Ok(Json(json!({ "question": question })))
 }
@@ -125,25 +125,19 @@ pub async fn update(
     if let Some(fc) = body.feedback_correct   { q.feedback_correct = fc.as_str().map(String::from); }
     if let Some(fi) = body.feedback_incorrect { q.feedback_incorrect = fi.as_str().map(String::from); }
 
-    let updated = sqlx::query_as::<_, Question>(
-        "UPDATE forms.questions
-         SET question_type = $1, title = $2, description = $3, required = $4,
-             options = $5, points = $6, correct_answers = $7,
-             feedback_correct = $8, feedback_incorrect = $9
-         WHERE id = $10
-         RETURNING *",
+    let updated = repo::update_question(
+        &state.db,
+        question_id,
+        &q.question_type,
+        &q.title,
+        q.description.as_deref(),
+        q.required,
+        &q.options,
+        q.points,
+        &q.correct_answers,
+        q.feedback_correct.as_deref(),
+        q.feedback_incorrect.as_deref(),
     )
-    .bind(&q.question_type)
-    .bind(&q.title)
-    .bind(&q.description)
-    .bind(q.required)
-    .bind(&q.options)
-    .bind(q.points)
-    .bind(&q.correct_answers)
-    .bind(&q.feedback_correct)
-    .bind(&q.feedback_incorrect)
-    .bind(question_id)
-    .fetch_one(&state.db)
     .await?;
 
     Ok(Json(json!({ "question": updated })))
@@ -156,10 +150,7 @@ pub async fn delete(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
     load_question(&state, question_id, form_id).await?;
-    sqlx::query("DELETE FROM forms.questions WHERE id = $1")
-        .bind(question_id)
-        .execute(&state.db)
-        .await?;
+    state.db.execute("DELETE FROM forms.questions WHERE id = $1", params![question_id]).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -171,13 +162,10 @@ pub async fn reorder(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
     for item in &items {
-        sqlx::query(
+        state.db.execute(
             "UPDATE forms.questions SET position = $1 WHERE id = $2 AND form_id = $3",
+            params![item.position, item.id, form_id],
         )
-        .bind(item.position)
-        .bind(item.id)
-        .bind(form_id)
-        .execute(&state.db)
         .await?;
     }
     Ok(Json(json!({ "ok": true })))
@@ -191,39 +179,35 @@ pub async fn duplicate(
     load_owned_form(&state, form_id, user.id).await?;
     load_question(&state, question_id, form_id).await?;
 
-    let max_pos: Option<i32> = sqlx::query_scalar(
-        "SELECT MAX(position) FROM forms.questions WHERE form_id = $1",
-    )
-    .bind(form_id)
-    .fetch_one(&state.db)
-    .await?;
+    let new_pos = next_position(&state, form_id).await?;
 
-    let new_pos = max_pos.unwrap_or(0) + 1;
-
-    let new_q = sqlx::query_as::<_, Question>(
+    // Copy exactly one row (WHERE id = $3), giving it a fresh key generated here
+    // so the result can be re-selected without RETURNING.
+    let new_id_q = new_id();
+    state.db.execute(
         "INSERT INTO forms.questions
-            (form_id, position, question_type, title, description, required, options,
+            (id, form_id, position, question_type, title, description, required, options,
              points, correct_answers, feedback_correct, feedback_incorrect)
-         SELECT form_id, $1, question_type, title, description, required, options,
+         SELECT $1, form_id, $2, question_type, title, description, required, options,
                 points, correct_answers, feedback_correct, feedback_incorrect
-         FROM forms.questions WHERE id = $2
-         RETURNING *",
+         FROM forms.questions WHERE id = $3",
+        params![new_id_q, new_pos, question_id],
     )
-    .bind(new_pos)
-    .bind(question_id)
-    .fetch_one(&state.db)
+    .await?;
+    let new_q = state.db.fetch_one_as::<Question>(
+        "SELECT * FROM forms.questions WHERE id = $1",
+        params![new_id_q],
+    )
     .await?;
 
     Ok(Json(json!({ "question": new_q })))
 }
 
 async fn load_question(state: &AppState, id: Uuid, form_id: Uuid) -> Result<Question> {
-    sqlx::query_as::<_, Question>(
+    state.db.fetch_optional_as::<Question>(
         "SELECT * FROM forms.questions WHERE id = $1 AND form_id = $2",
+        params![id, form_id],
     )
-    .bind(id)
-    .bind(form_id)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound(format!("Question {id}")))
 }
@@ -258,43 +242,51 @@ pub async fn import(
 
     // Instance cap: the batch must not push the form past its question limit.
     let max_q: i64 = state.instance().max_questions;
-    let current: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM forms.questions WHERE form_id = $1")
-        .bind(form_id)
-        .fetch_one(&state.db)
-        .await?;
+    let current: i64 = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.questions WHERE form_id = $1",
+            state.db.backend().count_bigint("*")
+        ),
+        params![form_id],
+    )
+    .await?;
     if current + body.question_ids.len() as i64 > max_q {
         return Err(FormsError::Validation(format!(
             "L'import dépasserait la limite de {max_q} questions de ce formulaire."
         )));
     }
 
+    let next_expr = state
+        .db
+        .backend()
+        .cast("COALESCE(MAX(position), -1) + 1", SqlType::BigInt);
+
     let mut tx = state.db.begin().await?;
 
-    let next: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(position), -1) + 1 FROM forms.questions WHERE form_id = $1",
-    )
-    .bind(form_id)
-    .fetch_one(&mut *tx)
-    .await?;
+    let next: i64 = tx
+        .fetch_optional_scalar(
+            &format!("SELECT {next_expr} FROM forms.questions WHERE form_id = $1"),
+            params![form_id],
+        )
+        .await?
+        .unwrap_or(0);
 
     let mut imported = 0i32;
     for (i, qid) in body.question_ids.iter().enumerate() {
-        let res = sqlx::query(
+        // Each imported row copies exactly one source row and gets a fresh key
+        // (generated here, so no RETURNING is needed).
+        let res = tx.execute(
             "INSERT INTO forms.questions
-                (form_id, position, question_type, title, description, required, options,
+                (id, form_id, position, question_type, title, description, required, options,
                  points, correct_answers, feedback_correct, feedback_incorrect)
-             SELECT $1, $2, question_type, title, description, required, options,
+             SELECT $1, $2, $3, question_type, title, description, required, options,
                     points, correct_answers, feedback_correct, feedback_incorrect
-             FROM forms.questions WHERE id = $3 AND form_id = $4",
+             FROM forms.questions WHERE id = $4 AND form_id = $5",
+            params![new_id(), form_id, next as i32 + i as i32, qid, body.source_form_id],
         )
-        .bind(form_id)
-        .bind(next + i as i32)
-        .bind(qid)
-        .bind(body.source_form_id)
-        .execute(&mut *tx)
         .await;
         match res {
-            Ok(r) => imported += r.rows_affected() as i32,
+            Ok(rows) => imported += rows as i32,
             Err(e) => {
                 tracing::error!(question_id = %qid, error = %e, "Import de question échoué");
                 return Err(e.into());

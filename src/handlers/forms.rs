@@ -6,10 +6,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use kubuno_db::{new_id, params};
+
 use crate::{
     errors::{FormsError, Result},
     middleware::FormsUser,
     models::form::*,
+    services::repo,
     state::AppState,
 };
 
@@ -29,19 +32,15 @@ pub async fn list(
     let limit  = q.limit.unwrap_or(50).min(200);
     let offset = q.offset.unwrap_or(0);
 
-    let rows = sqlx::query_as::<_, FormSummary>(
+    let rows = state.db.fetch_all_as::<FormSummary>(
         "SELECT id, owner_id, title, description, theme, response_count, last_response_at,
                 is_trashed, published_at, created_at, updated_at
          FROM forms.forms
          WHERE owner_id = $1 AND is_trashed = $2
          ORDER BY updated_at DESC
          LIMIT $3 OFFSET $4",
+        params![user.id, q.trashed, limit, offset],
     )
-    .bind(user.id)
-    .bind(q.trashed)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.db)
     .await?;
 
     Ok(Json(json!({ "forms": rows })))
@@ -54,15 +53,7 @@ pub async fn create(
 ) -> Result<Json<Value>> {
     let title = body.title.unwrap_or_else(|| "Formulaire sans titre".to_string());
 
-    let form = sqlx::query_as::<_, Form>(
-        "INSERT INTO forms.forms (owner_id, title)
-         VALUES ($1, $2)
-         RETURNING *",
-    )
-    .bind(user.id)
-    .bind(&title)
-    .fetch_one(&state.db)
-    .await?;
+    let form = repo::create_form(&state.db, user.id, &title).await?;
 
     Ok(Json(json!({ "form": form })))
 }
@@ -74,11 +65,10 @@ pub async fn get(
 ) -> Result<Json<Value>> {
     let form = load_owned_form(&state, id, user.id).await?;
 
-    let questions = sqlx::query_as::<_, Question>(
+    let questions = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1 ORDER BY position ASC",
+        params![id],
     )
-    .bind(id)
-    .fetch_all(&state.db)
     .await?;
 
     Ok(Json(json!({ "form": form, "questions": questions })))
@@ -108,18 +98,14 @@ pub async fn update(
         form.settings = s;
     }
 
-    let updated = sqlx::query_as::<_, Form>(
-        "UPDATE forms.forms
-         SET title = $1, description = $2, theme = $3, settings = $4
-         WHERE id = $5
-         RETURNING *",
+    let updated = repo::update_form_content(
+        &state.db,
+        id,
+        &form.title,
+        form.description.as_deref(),
+        &form.theme,
+        &form.settings,
     )
-    .bind(&form.title)
-    .bind(&form.description)
-    .bind(&form.theme)
-    .bind(&form.settings)
-    .bind(id)
-    .fetch_one(&state.db)
     .await?;
 
     Ok(Json(json!({ "form": updated })))
@@ -131,11 +117,12 @@ pub async fn trash(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, id, user.id).await?;
-    sqlx::query(
-        "UPDATE forms.forms SET is_trashed = TRUE, trashed_at = NOW() WHERE id = $1",
+    // NOW() and the boolean literal are bound from Rust: the three engines spell
+    // them differently.
+    state.db.execute(
+        "UPDATE forms.forms SET is_trashed = $1, trashed_at = $2 WHERE id = $3",
+        params![true, chrono::Utc::now(), id],
     )
-    .bind(id)
-    .execute(&state.db)
     .await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -146,11 +133,10 @@ pub async fn restore(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, id, user.id).await?;
-    sqlx::query(
-        "UPDATE forms.forms SET is_trashed = FALSE, trashed_at = NULL WHERE id = $1",
+    state.db.execute(
+        "UPDATE forms.forms SET is_trashed = $1, trashed_at = NULL WHERE id = $2",
+        params![false, id],
     )
-    .bind(id)
-    .execute(&state.db)
     .await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -166,10 +152,7 @@ pub async fn delete(
             "Mettez d'abord le formulaire à la corbeille".into(),
         ));
     }
-    sqlx::query("DELETE FROM forms.forms WHERE id = $1")
-        .bind(id)
-        .execute(&state.db)
-        .await?;
+    state.db.execute("DELETE FROM forms.forms WHERE id = $1", params![id]).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -181,31 +164,52 @@ pub async fn duplicate(
     let original = load_owned_form(&state, id, user.id).await?;
 
     let new_title = format!("Copie de {}", original.title);
-    let new_form = sqlx::query_as::<_, Form>(
-        "INSERT INTO forms.forms (owner_id, title, description, theme, settings)
-         SELECT $1, $2, description, theme, settings
-         FROM forms.forms WHERE id = $3
-         RETURNING *",
+    // A copied form keeps the source's content but gets a fresh key (generated
+    // here, so it can be re-selected without RETURNING) and a fresh public token
+    // (the column default). `INSERT ... SELECT` copies exactly one row.
+    let new_id_form = new_id();
+    state.db.execute(
+        "INSERT INTO forms.forms (id, owner_id, title, description, theme, settings)
+         SELECT $1, $2, $3, description, theme, settings
+         FROM forms.forms WHERE id = $4",
+        params![new_id_form, user.id, &new_title, id],
     )
-    .bind(user.id)
-    .bind(&new_title)
-    .bind(id)
-    .fetch_one(&state.db)
     .await?;
+    let new_form = repo::load_form(&state.db, new_id_form)
+        .await?
+        .ok_or_else(|| FormsError::NotFound(format!("Formulaire {new_id_form}")))?;
 
-    // Copy questions
-    sqlx::query(
-        "INSERT INTO forms.questions
-            (form_id, position, question_type, title, description, required, options,
-             points, correct_answers, feedback_correct, feedback_incorrect)
-         SELECT $1, position, question_type, title, description, required, options,
-                points, correct_answers, feedback_correct, feedback_incorrect
-         FROM forms.questions WHERE form_id = $2 ORDER BY position ASC",
+    // Copy questions one by one: each copy needs its own key, so a single
+    // multi-row `INSERT ... SELECT` (which cannot invent N keys in Rust) is
+    // replaced by a per-row insert.
+    let sources = state.db.fetch_all_as::<Question>(
+        "SELECT * FROM forms.questions WHERE form_id = $1 ORDER BY position ASC",
+        params![id],
     )
-    .bind(new_form.id)
-    .bind(id)
-    .execute(&state.db)
     .await?;
+    for q in &sources {
+        state.db.execute(
+            "INSERT INTO forms.questions
+                (id, form_id, position, question_type, title, description, required, options,
+                 points, correct_answers, feedback_correct, feedback_incorrect)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+            params![
+                new_id(),
+                new_form.id,
+                q.position,
+                &q.question_type,
+                &q.title,
+                q.description.as_deref(),
+                q.required,
+                q.options.clone(),
+                q.points,
+                q.correct_answers.clone(),
+                q.feedback_correct.as_deref(),
+                q.feedback_incorrect.as_deref()
+            ],
+        )
+        .await?;
+    }
 
     Ok(Json(json!({ "form": new_form })))
 }
@@ -221,15 +225,14 @@ pub async fn rotate_token(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, id, user.id).await?;
-    let token: String = sqlx::query_scalar(
-        r#"UPDATE forms.forms
-           SET public_token = replace(gen_random_uuid()::text, '-', '')
-                           || replace(gen_random_uuid()::text, '-', '')
-           WHERE id = $1
-           RETURNING public_token"#,
+    // The new token is generated in Rust (two dashless UUIDs = 64 hex chars) and
+    // bound, so no engine-specific `gen_random_uuid()` and no RETURNING is
+    // needed — the caller already holds the value it just stored.
+    let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    state.db.execute(
+        "UPDATE forms.forms SET public_token = $1 WHERE id = $2",
+        params![&token, id],
     )
-    .bind(id)
-    .fetch_one(&state.db)
     .await?;
     Ok(Json(json!({ "public_token": token })))
 }
@@ -243,26 +246,24 @@ pub async fn publish(
     load_owned_form(&state, id, user.id).await?;
     let publish = body.get("publish").and_then(|v| v.as_bool()).unwrap_or(true);
     if publish {
-        sqlx::query(
-            "UPDATE forms.forms SET published_at = NOW() WHERE id = $1 AND published_at IS NULL",
+        state.db.execute(
+            "UPDATE forms.forms SET published_at = $1 WHERE id = $2 AND published_at IS NULL",
+            params![chrono::Utc::now(), id],
         )
-        .bind(id)
-        .execute(&state.db)
         .await?;
     } else {
-        sqlx::query("UPDATE forms.forms SET published_at = NULL WHERE id = $1")
-            .bind(id)
-            .execute(&state.db)
-            .await?;
+        state.db.execute(
+            "UPDATE forms.forms SET published_at = NULL WHERE id = $1",
+            params![id],
+        )
+        .await?;
     }
     Ok(Json(json!({ "published": publish })))
 }
 
 // Helper: load a form and verify ownership
 pub async fn load_owned_form(state: &AppState, id: Uuid, owner_id: Uuid) -> Result<Form> {
-    let form = sqlx::query_as::<_, Form>("SELECT * FROM forms.forms WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
+    let form = repo::load_form(&state.db, id)
         .await?
         .ok_or_else(|| FormsError::NotFound(format!("Formulaire {id}")))?;
 

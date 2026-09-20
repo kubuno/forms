@@ -6,10 +6,12 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use uuid::Uuid;
 
+use kubuno_db::params;
+
 use crate::{
     errors::{FormsError, Result},
     models::{form::*, logic::ConditionalRule, response::*},
-    services::scoring,
+    services::{repo, scoring},
     state::AppState,
 };
 
@@ -27,11 +29,10 @@ pub async fn get_form(
     let form = load_public_form(&state, &token).await?;
     check_accepting(&form)?;
 
-    let questions = sqlx::query_as::<_, Question>(
+    let questions = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1 ORDER BY position ASC",
+        params![form.id],
     )
-    .bind(form.id)
-    .fetch_all(&state.db)
     .await?;
 
     // Strip correct_answers / points / feedback so quizzes cannot be cheated.
@@ -51,11 +52,10 @@ pub async fn get_form(
         })
         .collect();
 
-    let rules = sqlx::query_as::<_, ConditionalRule>(
+    let rules = state.db.fetch_all_as::<ConditionalRule>(
         "SELECT * FROM forms.conditional_rules WHERE form_id = $1 ORDER BY position ASC",
+        params![form.id],
     )
-    .bind(form.id)
-    .fetch_all(&state.db)
     .await?;
 
     let s = &form.settings;
@@ -127,16 +127,16 @@ pub async fn submit(
     let cooldown = state.instance().submission_cooldown_secs;
     if cooldown > 0 {
         let ip = addr.ip().to_string();
-        let recent: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM forms.responses
-             WHERE form_id = $1 AND ip_address = $2::inet
-               AND submitted_at > NOW() - ($3 || ' seconds')::interval",
-        )
-        .bind(form.id)
-        .bind(&ip)
-        .bind(cooldown.to_string())
-        .fetch_one(&state.db)
-        .await?;
+        // The cutoff is computed in Rust and bound, rather than built with
+        // NOW()/INTERVAL, which the three engines spell differently.
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(cooldown);
+        let sql = format!(
+            "SELECT {cnt} FROM forms.responses
+             WHERE form_id = $1 AND ip_address = {ip} AND submitted_at > $3",
+            cnt = state.db.backend().count_bigint("*"),
+            ip = repo::inet_placeholder(state.db.backend(), 2),
+        );
+        let recent: i64 = state.db.fetch_scalar(&sql, params![form.id, &ip, cutoff]).await?;
 
         if recent > 0 {
             return Err(FormsError::TooManyRequests);
@@ -144,21 +144,22 @@ pub async fn submit(
     }
 
     // Load all questions (with scoring data, used server-side only).
-    let questions = sqlx::query_as::<_, Question>(
+    let questions = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1 ORDER BY position ASC",
+        params![form.id],
     )
-    .bind(form.id)
-    .fetch_all(&state.db)
     .await?;
 
     // Validate required questions (skip content-only types). When the form uses
     // conditional logic, required questions can be legitimately hidden client-side,
     // so we trust the client's validation rather than risk false rejections.
-    let rule_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM forms.conditional_rules WHERE form_id = $1",
+    let rule_count: i64 = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.conditional_rules WHERE form_id = $1",
+            state.db.backend().count_bigint("*")
+        ),
+        params![form.id],
     )
-    .bind(form.id)
-    .fetch_one(&state.db)
     .await?;
 
     if rule_count == 0 {
@@ -202,44 +203,35 @@ pub async fn submit(
         }
     }
 
-    // Insert the response (with score when this is a quiz).
+    // Insert the response (with score when this is a quiz). The response-count
+    // increment on the form is done by the insert trigger on every engine.
     let ip_str = addr.ip().to_string();
-    let response = sqlx::query_as::<_, FormResponse>(
-        "INSERT INTO forms.responses
-            (form_id, respondent_email, respondent_name, ip_address, fill_duration_secs,
-             score, max_score, source)
-         VALUES ($1, $2, $3, $4::inet, $5, $6, $7, 'web')
-         RETURNING id, form_id, respondent_id, respondent_email, respondent_name,
-                   fill_duration_secs, score, max_score, source, submitted_at",
+    let response = repo::insert_response(
+        &state.db,
+        form.id,
+        body.respondent_email.as_deref(),
+        body.respondent_name.as_deref(),
+        &ip_str,
+        body.fill_duration_secs,
+        if has_quiz { Some(total_score) } else { None },
+        if has_quiz { Some(max_score) } else { None },
     )
-    .bind(form.id)
-    .bind(body.respondent_email.as_deref())
-    .bind(body.respondent_name.as_deref())
-    .bind(&ip_str)
-    .bind(body.fill_duration_secs)
-    .bind(if has_quiz { Some(total_score) } else { None })
-    .bind(if has_quiz { Some(max_score) } else { None })
-    .fetch_one(&state.db)
     .await?;
 
     // Insert answers (with grading metadata).
     for answer in &body.answers {
-        let value_str = serde_json::to_string(&answer.value).unwrap_or_else(|_| "null".to_string());
         let (is_correct, points) = match graded.get(&answer.question_id) {
             Some((c, p)) => (Some(*c), *p),
             None => (None, 0),
         };
-        sqlx::query(
-            "INSERT INTO forms.answers (response_id, question_id, value, is_correct, points_earned)
-             VALUES ($1, $2, $3::jsonb, $4, $5)
-             ON CONFLICT (response_id, question_id) DO NOTHING",
+        repo::insert_answer(
+            &state.db,
+            response.id,
+            answer.question_id,
+            &answer.value,
+            is_correct,
+            points,
         )
-        .bind(response.id)
-        .bind(answer.question_id)
-        .bind(&value_str)
-        .bind(is_correct)
-        .bind(points)
-        .execute(&state.db)
         .await?;
     }
 
@@ -334,11 +326,10 @@ fn is_blank(v: &Value) -> bool {
 }
 
 async fn load_public_form(state: &AppState, token: &str) -> Result<crate::models::form::Form> {
-    sqlx::query_as::<_, crate::models::form::Form>(
+    state.db.fetch_optional_as::<crate::models::form::Form>(
         "SELECT * FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",
+        params![token],
     )
-    .bind(token)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))
 }

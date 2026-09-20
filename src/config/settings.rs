@@ -1,6 +1,5 @@
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Settings {
@@ -25,43 +24,10 @@ pub struct CoreSettings {
     pub internal_secret: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct DatabaseSettings {
-    pub url:             Option<String>,
-    pub host:            Option<String>,
-    pub port:            Option<u16>,
-    pub user:            Option<String>,
-    pub password:        Option<String>,
-    pub database:        Option<String>,
-    pub max_connections: u32,
-    pub min_connections: u32,
-    #[serde(with = "duration_secs")]
-    pub connect_timeout: Duration,
-    pub run_migrations:  bool,
-}
-
-impl DatabaseSettings {
-    pub fn connect_options(&self) -> anyhow::Result<sqlx::postgres::PgConnectOptions> {
-        use anyhow::Context;
-        use std::str::FromStr;
-        if self.host.is_some() || self.user.is_some() {
-            let user     = self.user.as_deref().context("database.user requis")?;
-            let password = self.password.as_deref().context("database.password requis")?;
-            let database = self.database.as_deref().context("database.database requis")?;
-            return Ok(sqlx::postgres::PgConnectOptions::new()
-                .host(self.host.as_deref().unwrap_or("localhost"))
-                .port(self.port.unwrap_or(5432))
-                .username(user)
-                .password(password)
-                .database(database));
-        }
-        if let Some(url) = &self.url {
-            return sqlx::postgres::PgConnectOptions::from_str(url)
-                .context("database.url invalide");
-        }
-        Err(anyhow::anyhow!("database : fournissez host/user/password/database ou url"))
-    }
-}
+/// The `[database]` section is owned by kubuno-db: which of its fields matter
+/// depends on the engine the administrator chose (`database.engine`), and the
+/// pool is opened by `kubuno_db::connect`.
+pub use kubuno_db::DbSettings as DatabaseSettings;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct StorageSettings {
@@ -106,6 +72,9 @@ impl Settings {
             .set_default("database.min_connections", 1i64)?
             .set_default("database.connect_timeout", 10i64)?
             .set_default("database.run_migrations", true)?
+            .set_default("database.engine", "postgres")?
+            // SQLite only: the directory that holds `forms.sqlite`.
+            .set_default("database.path", "./data/db")?
             .set_default("storage.local_path", "./data/forms")?
             .set_default("storage.temp_path", "./data/temp")?
             .set_default("forms.max_questions", 200i64)?
@@ -125,22 +94,14 @@ impl Settings {
 
         if let Ok(v) = std::env::var("KUBUNO_CORE_URL")        { builder = builder.set_override("core.url",             v)?; }
         if let Ok(v) = std::env::var("KUBUNO_INTERNAL_SECRET") { builder = builder.set_override("core.internal_secret", v)?; }
+        if let Ok(v) = std::env::var("KUBUNO_DB_ENGINE")       { builder = builder.set_override("database.engine",   v)?; }
         if let Ok(v) = std::env::var("KUBUNO_DB_HOST")         { builder = builder.set_override("database.host",     v)?; }
         if let Ok(v) = std::env::var("KUBUNO_DB_PORT")         { builder = builder.set_override("database.port",     v.parse::<i64>().unwrap_or(5432))?; }
         if let Ok(v) = std::env::var("KUBUNO_DB_USER")         { builder = builder.set_override("database.user",     v)?; }
         if let Ok(v) = std::env::var("KUBUNO_DB_PASSWORD")     { builder = builder.set_override("database.password", v)?; }
         if let Ok(v) = std::env::var("KUBUNO_DB_NAME")         { builder = builder.set_override("database.database", v)?; }
+        if let Ok(v) = std::env::var("KUBUNO_DB_PATH")         { builder = builder.set_override("database.path",     v)?; }
 
         builder.build()?.try_deserialize()
-    }
-}
-
-mod duration_secs {
-    use serde::{Deserialize, Deserializer};
-    use std::time::Duration;
-    pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
-    where D: Deserializer<'de> {
-        let secs = u64::deserialize(d)?;
-        Ok(Duration::from_secs(secs))
     }
 }

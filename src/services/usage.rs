@@ -43,8 +43,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde_json::json;
-use sqlx::PgPool;
 use uuid::Uuid;
+
+use kubuno_db::dialect::Backend;
+use kubuno_db::{params, DbPool};
 
 use crate::state::AppState;
 
@@ -76,71 +78,134 @@ const MODULE_ID: &str = "forms";
 /// What the form's owner can delete. Billed.
 const CAT_CONTENT: &str = "content";
 
-/// Every byte-bearing query forms runs, paired with the category it feeds.
+/// The byte length of one column, coalesced to 0 for NULL.
 ///
-/// Each statement must return exactly `(owner uuid, bytes bigint, objects bigint)`
-/// and must only read forms' own schema. Every one of them reaches the owner
-/// through `forms.forms` — the guard test below is what keeps a future query from
-/// grouping on `respondent_id` and billing a stranger, or worse, nobody.
-const OWNED_QUERIES: &[(&str, &str)] = &[
-    // The form itself: title, description, theme and settings.
-    (
-        CAT_CONTENT,
-        "SELECT owner_id,
-                COALESCE(SUM(
-                    pg_column_size(title)
-                  + COALESCE(pg_column_size(description), 0)
-                  + pg_column_size(theme)
-                ), 0)::bigint,
-                COUNT(*)::bigint
-           FROM forms.forms
-          GROUP BY owner_id",
-    ),
-    // Questions, reached through their form.
-    (
-        CAT_CONTENT,
-        "SELECT f.owner_id,
-                COALESCE(SUM(pg_column_size(q.*)), 0)::bigint,
-                COUNT(*)::bigint
-           FROM forms.questions q
-           JOIN forms.forms f ON f.id = q.form_id
-          GROUP BY f.owner_id",
-    ),
-    // Responses: the envelope (who answered, from where, how long it took).
-    (
-        CAT_CONTENT,
-        "SELECT f.owner_id,
-                COALESCE(SUM(pg_column_size(r.*)), 0)::bigint,
-                COUNT(*)::bigint
-           FROM forms.responses r
-           JOIN forms.forms f ON f.id = r.form_id
-          GROUP BY f.owner_id",
-    ),
-    // Answers: the JSONB values themselves, two joins from the owner.
-    (
-        CAT_CONTENT,
-        "SELECT f.owner_id,
-                COALESCE(SUM(pg_column_size(a.value)), 0)::bigint,
-                COUNT(*)::bigint
-           FROM forms.answers a
-           JOIN forms.responses r ON r.id = a.response_id
-           JOIN forms.forms f     ON f.id = r.form_id
-          GROUP BY f.owner_id",
-    ),
-    // Uploaded files. These sit on the storage backend, so the size comes from
-    // the column the upload path wrote, not from `pg_column_size`. A row whose
-    // `size_bytes` stayed at its default counts as an object of no weight rather
-    // than being dropped: the object is real and the console should see it.
-    (
-        CAT_CONTENT,
-        "SELECT f.owner_id,
-                COALESCE(SUM(u.size_bytes), 0)::bigint,
-                COUNT(*)::bigint
-           FROM forms.uploads u
-           JOIN forms.forms f ON f.id = u.form_id
-          GROUP BY f.owner_id",
-    ),
-];
+/// PostgreSQL's `pg_column_size` reports the on-disk (TOASTed, compressed) size,
+/// which is what the column really costs there. MySQL and SQLite have no such
+/// function, so the logical byte length (`LENGTH`) stands in — an honest figure
+/// on engines without TOAST, though it counts characters rather than storage
+/// bytes on SQLite.
+fn col_bytes(backend: Backend, col: &str) -> String {
+    match backend {
+        Backend::Postgres => format!("COALESCE(pg_column_size({col}), 0)"),
+        Backend::MySql | Backend::Sqlite => format!("COALESCE(LENGTH({col}), 0)"),
+    }
+}
+
+/// A whole row's byte weight. PostgreSQL measures it directly; the other engines
+/// approximate it as the sum of the columns that actually carry weight.
+fn row_bytes(backend: Backend, alias: &str, cols: &[&str]) -> String {
+    match backend {
+        Backend::Postgres => format!("COALESCE(pg_column_size({alias}.*), 0)"),
+        Backend::MySql | Backend::Sqlite => cols
+            .iter()
+            .map(|c| col_bytes(backend, &format!("{alias}.{c}")))
+            .collect::<Vec<_>>()
+            .join(" + "),
+    }
+}
+
+/// `COALESCE(SUM(inner), 0)` decodable as `i64` on every engine.
+fn sum_bigint(backend: Backend, inner: &str) -> String {
+    let s = format!("COALESCE(SUM({inner}), 0)");
+    match backend {
+        Backend::Postgres => format!("({s})::bigint"),
+        Backend::MySql => format!("CAST({s} AS SIGNED)"),
+        Backend::Sqlite => format!("CAST({s} AS INTEGER)"),
+    }
+}
+
+/// Every byte-bearing query forms runs, paired with the category it feeds, built
+/// for the engine in use.
+///
+/// Each statement returns exactly `(owner uuid, bytes bigint, objects bigint)`
+/// and reads forms' own schema only. Every one reaches the owner through
+/// `forms.forms` — the guard tests below keep a future query from grouping on
+/// `respondent_id` and billing a stranger, or worse, nobody.
+fn owned_queries(backend: Backend) -> Vec<(&'static str, String)> {
+    let count = backend.count_bigint("*");
+    vec![
+        // The form itself: title, description and theme.
+        (
+            CAT_CONTENT,
+            format!(
+                "SELECT owner_id, {bytes}, {count} FROM forms.forms GROUP BY owner_id",
+                bytes = sum_bigint(
+                    backend,
+                    &format!(
+                        "{} + {} + {}",
+                        col_bytes(backend, "title"),
+                        col_bytes(backend, "description"),
+                        col_bytes(backend, "theme"),
+                    ),
+                ),
+            ),
+        ),
+        // Questions, reached through their form.
+        (
+            CAT_CONTENT,
+            format!(
+                "SELECT f.owner_id, {bytes}, {count} \
+                 FROM forms.questions q JOIN forms.forms f ON f.id = q.form_id \
+                 GROUP BY f.owner_id",
+                bytes = sum_bigint(
+                    backend,
+                    &row_bytes(
+                        backend,
+                        "q",
+                        &[
+                            "question_type", "title", "description", "options",
+                            "correct_answers", "feedback_correct", "feedback_incorrect",
+                            "image_path",
+                        ],
+                    ),
+                ),
+            ),
+        ),
+        // Responses: the envelope (who answered, from where, how long it took).
+        (
+            CAT_CONTENT,
+            format!(
+                "SELECT f.owner_id, {bytes}, {count} \
+                 FROM forms.responses r JOIN forms.forms f ON f.id = r.form_id \
+                 GROUP BY f.owner_id",
+                bytes = sum_bigint(
+                    backend,
+                    &row_bytes(
+                        backend,
+                        "r",
+                        &["respondent_email", "respondent_name", "ip_address", "user_agent", "source"],
+                    ),
+                ),
+            ),
+        ),
+        // Answers: the JSON values themselves, two joins from the owner.
+        (
+            CAT_CONTENT,
+            format!(
+                "SELECT f.owner_id, {bytes}, {count} \
+                 FROM forms.answers a \
+                 JOIN forms.responses r ON r.id = a.response_id \
+                 JOIN forms.forms f     ON f.id = r.form_id \
+                 GROUP BY f.owner_id",
+                bytes = sum_bigint(backend, &col_bytes(backend, "a.value")),
+            ),
+        ),
+        // Uploaded files. These sit on the storage backend, so the size comes
+        // from the column the upload path wrote. A row whose `size_bytes` stayed
+        // at its default counts as an object of no weight rather than being
+        // dropped: the object is real and the console should see it.
+        (
+            CAT_CONTENT,
+            format!(
+                "SELECT f.owner_id, {bytes}, {count} \
+                 FROM forms.uploads u JOIN forms.forms f ON f.id = u.form_id \
+                 GROUP BY f.owner_id",
+                bytes = sum_bigint(backend, "u.size_bytes"),
+            ),
+        ),
+    ]
+}
 
 /// One `(account, category)` figure, as declared.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,24 +224,24 @@ struct Entry {
 /// failed here is *retired* by the core until the next sync repairs it — the
 /// honest outcome, since publishing a stale figure as current state would be
 /// worse than publishing none.
-async fn collect(db: &PgPool) -> Vec<Entry> {
+async fn collect(db: &DbPool) -> Vec<Entry> {
     // Every query feeds `content`, so figures are folded per `(user, category)`
     // before being sent: the core keys rows on that pair and would keep only the
     // last one otherwise.
     let mut acc: HashMap<(Uuid, &'static str), (i64, i64)> = HashMap::new();
 
-    for (category, sql) in OWNED_QUERIES {
-        match sqlx::query_as::<_, (Uuid, i64, i64)>(*sql).fetch_all(db).await {
+    for (category, sql) in owned_queries(db.backend()) {
+        match db.fetch_all_as::<(Uuid, i64, i64)>(&sql, params![]).await {
             Ok(rows) => {
                 for (user_id, bytes, objects) in rows {
-                    let slot = acc.entry((user_id, *category)).or_insert((0, 0));
+                    let slot = acc.entry((user_id, category)).or_insert((0, 0));
                     slot.0 += bytes;
                     slot.1 += objects;
                 }
             }
             Err(e) => tracing::error!(
                 error = %e,
-                catégorie = *category,
+                catégorie = category,
                 "Recomptage de consommation échoué pour une requête — catégorie incomplète"
             ),
         }
@@ -348,6 +413,15 @@ pub async fn run_reporter(state: AppState) {
 mod tests {
     use super::*;
 
+    /// The queries for every engine, so an invariant is checked on all three
+    /// spellings rather than just one.
+    fn all_queries() -> Vec<(&'static str, String)> {
+        [Backend::Postgres, Backend::MySql, Backend::Sqlite]
+            .into_iter()
+            .flat_map(owned_queries)
+            .collect()
+    }
+
     /// The decision this module documents at the top, checked mechanically.
     ///
     /// A respondent may be anonymous, may have no account here, and can never
@@ -355,7 +429,7 @@ mod tests {
     /// who cannot act or produce a null owner the core would refuse.
     #[test]
     fn nothing_is_ever_billed_to_a_respondent() {
-        for (_, sql) in OWNED_QUERIES {
+        for (_, sql) in all_queries() {
             let lowered = sql.to_lowercase();
             assert!(
                 !lowered.contains("group by r.respondent_id")
@@ -373,7 +447,7 @@ mod tests {
     /// owner by joining it: that join *is* the attribution rule.
     #[test]
     fn the_owner_is_always_reached_through_the_form() {
-        for (_, sql) in OWNED_QUERIES {
+        for (_, sql) in all_queries() {
             let lowered = sql.to_lowercase();
             let reads_forms_directly = lowered.contains("from forms.forms");
             assert!(
@@ -387,9 +461,9 @@ mod tests {
     #[test]
     fn content_is_the_only_category() {
         use std::collections::BTreeSet;
-        let cats: BTreeSet<&str> = OWNED_QUERIES.iter().map(|(c, _)| *c).collect();
+        let cats: BTreeSet<&str> = all_queries().iter().map(|(c, _)| *c).collect();
         assert_eq!(cats, BTreeSet::from([CAT_CONTENT]));
-        for (c, _) in OWNED_QUERIES {
+        for (c, _) in &all_queries() {
             assert_ne!(
                 *c, "delegated",
                 "forms n'écrit rien dans drive : une délégation serait un mensonge"
@@ -401,7 +475,7 @@ mod tests {
     /// violation and a double count waiting to happen.
     #[test]
     fn queries_only_read_the_forms_schema() {
-        for (_, sql) in OWNED_QUERIES {
+        for (_, sql) in all_queries() {
             let lowered = sql.to_lowercase();
             for foreign in ["drive.", "core.", "chat.", "office.", "keestore."] {
                 assert!(

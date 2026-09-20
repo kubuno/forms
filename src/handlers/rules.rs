@@ -5,6 +5,9 @@ use axum::{
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use kubuno_db::dialect::SqlType;
+use kubuno_db::{new_id, params};
+
 use crate::{
     errors::{FormsError, Result},
     handlers::forms::load_owned_form,
@@ -19,11 +22,10 @@ pub async fn list(
     Path(form_id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
-    let rules = sqlx::query_as::<_, ConditionalRule>(
+    let rules = state.db.fetch_all_as::<ConditionalRule>(
         "SELECT * FROM forms.conditional_rules WHERE form_id = $1 ORDER BY position ASC",
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_all(&state.db)
     .await?;
     Ok(Json(json!({ "rules": rules })))
 }
@@ -36,30 +38,40 @@ pub async fn create(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
 
-    let max_pos: Option<i32> = sqlx::query_scalar(
-        "SELECT MAX(position) FROM forms.conditional_rules WHERE form_id = $1",
+    // MAX(position) is NULL on an empty form; cast so it decodes as i64 on the
+    // three engines and read it as an `Option`.
+    let max_expr = state.db.backend().cast("MAX(position)", SqlType::BigInt);
+    let max_pos: Option<i64> = state.db.fetch_scalar(
+        &format!("SELECT {max_expr} FROM forms.conditional_rules WHERE form_id = $1"),
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_one(&state.db)
     .await?;
 
-    let position = max_pos.unwrap_or(-1) + 1;
-    let compare_str = body.compare_value.as_ref().map(|v| v.to_string());
+    let position = (max_pos.unwrap_or(-1) + 1) as i32;
 
-    let rule = sqlx::query_as::<_, ConditionalRule>(
+    // compare_value is bound as JSON directly (no `::jsonb` cast, which only
+    // PostgreSQL understands). The row is re-selected after the keyed insert.
+    let id = new_id();
+    state.db.execute(
         "INSERT INTO forms.conditional_rules
-            (form_id, position, trigger_question_id, operator, compare_value, action, target_section_id)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-         RETURNING *",
+            (id, form_id, position, trigger_question_id, operator, compare_value, action, target_section_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        params![
+            id,
+            form_id,
+            position,
+            body.trigger_question_id,
+            &body.operator,
+            body.compare_value.clone(),
+            &body.action,
+            body.target_section_id
+        ],
     )
-    .bind(form_id)
-    .bind(position)
-    .bind(body.trigger_question_id)
-    .bind(&body.operator)
-    .bind(compare_str.as_deref())
-    .bind(&body.action)
-    .bind(body.target_section_id)
-    .fetch_one(&state.db)
+    .await?;
+    let rule = state.db.fetch_one_as::<ConditionalRule>(
+        "SELECT * FROM forms.conditional_rules WHERE id = $1",
+        params![id],
+    )
     .await?;
 
     Ok(Json(json!({ "rule": rule })))
@@ -76,9 +88,8 @@ pub async fn update(
 
     let operator = body.operator.unwrap_or(rule.operator);
     let action   = body.action.unwrap_or(rule.action);
-    let compare_str = body.compare_value.as_ref()
-        .map(|v| v.to_string())
-        .or_else(|| rule.compare_value.as_ref().map(|v| v.to_string()));
+    // A new value replaces the stored one; otherwise the stored one is kept.
+    let compare_value = body.compare_value.clone().or(rule.compare_value);
 
     let target_section_id = if let Some(v) = body.target_section_id {
         v.as_str()
@@ -88,17 +99,17 @@ pub async fn update(
         rule.target_section_id
     };
 
-    let updated = sqlx::query_as::<_, ConditionalRule>(
+    state.db.execute(
         "UPDATE forms.conditional_rules
-         SET operator = $1, compare_value = $2::jsonb, action = $3, target_section_id = $4
-         WHERE id = $5 RETURNING *",
+         SET operator = $1, compare_value = $2, action = $3, target_section_id = $4
+         WHERE id = $5",
+        params![&operator, compare_value, &action, target_section_id, rule_id],
     )
-    .bind(&operator)
-    .bind(compare_str.as_deref())
-    .bind(&action)
-    .bind(target_section_id)
-    .bind(rule_id)
-    .fetch_one(&state.db)
+    .await?;
+    let updated = state.db.fetch_one_as::<ConditionalRule>(
+        "SELECT * FROM forms.conditional_rules WHERE id = $1",
+        params![rule_id],
+    )
     .await?;
 
     Ok(Json(json!({ "rule": updated })))
@@ -111,20 +122,15 @@ pub async fn delete(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
     load_rule(&state, rule_id, form_id).await?;
-    sqlx::query("DELETE FROM forms.conditional_rules WHERE id = $1")
-        .bind(rule_id)
-        .execute(&state.db)
-        .await?;
+    state.db.execute("DELETE FROM forms.conditional_rules WHERE id = $1", params![rule_id]).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 async fn load_rule(state: &AppState, id: Uuid, form_id: Uuid) -> Result<ConditionalRule> {
-    sqlx::query_as::<_, ConditionalRule>(
+    state.db.fetch_optional_as::<ConditionalRule>(
         "SELECT * FROM forms.conditional_rules WHERE id = $1 AND form_id = $2",
+        params![id, form_id],
     )
-    .bind(id)
-    .bind(form_id)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound(format!("Règle {id}")))
 }

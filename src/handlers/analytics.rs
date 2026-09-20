@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use kubuno_db::params;
+
 use crate::{
     errors::Result,
     handlers::forms::load_owned_form,
@@ -21,11 +23,15 @@ pub async fn global_stats(
 ) -> Result<Json<Value>> {
     let form = load_owned_form(&state, form_id, user.id).await?;
 
-    let avg_duration: Option<f64> = sqlx::query_scalar(
-        "SELECT AVG(fill_duration_secs) FROM forms.responses WHERE form_id = $1",
+    // AVG returns a different SQL type per engine and NULL when there are no
+    // rows; avg_double casts it to f64 and it is read as an Option.
+    let avg_duration: Option<f64> = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.responses WHERE form_id = $1",
+            state.db.backend().avg_double("fill_duration_secs")
+        ),
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_one(&state.db)
     .await?;
 
     let completion_rate: f64 = 1.0; // TODO: calculer si des réponses partielles existent
@@ -45,31 +51,37 @@ pub async fn question_stats(
 ) -> Result<Json<Value>> {
     load_owned_form(&state, form_id, user.id).await?;
 
-    let questions = sqlx::query_as::<_, Question>(
+    let questions = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1
          AND question_type NOT IN ('image', 'video', 'section')
          ORDER BY position ASC",
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_all(&state.db)
     .await?;
 
-    let total_responses: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM forms.responses WHERE form_id = $1",
+    let total_responses: i64 = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.responses WHERE form_id = $1",
+            state.db.backend().count_bigint("*")
+        ),
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_one(&state.db)
     .await?;
 
     let mut stats = Vec::new();
 
     for q in &questions {
-        let answers: Vec<Value> = sqlx::query_scalar(
-            "SELECT value FROM forms.answers WHERE question_id = $1",
-        )
-        .bind(q.id)
-        .fetch_all(&state.db)
-        .await?;
+        // A single-column select, read as one-field rows and unwrapped.
+        let answers: Vec<Value> = state
+            .db
+            .fetch_all_as::<(Value,)>(
+                "SELECT value FROM forms.answers WHERE question_id = $1",
+                params![q.id],
+            )
+            .await?
+            .into_iter()
+            .map(|(v,)| v)
+            .collect();
 
         let stat = compute_question_stats(q, &answers, total_responses);
         stats.push(stat);

@@ -6,6 +6,8 @@ use axum::{
 use axum::http::{header, StatusCode};
 use uuid::Uuid;
 
+use kubuno_db::params;
+
 use crate::{
     errors::{FormsError, Result},
     handlers::forms::load_owned_form,
@@ -21,22 +23,20 @@ pub async fn csv(
 ) -> Result<Response> {
     let form = load_owned_form(&state, form_id, user.id).await?;
 
-    let questions: Vec<Question> = sqlx::query_as::<_, Question>(
+    let questions: Vec<Question> = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1
          AND question_type NOT IN ('image', 'video', 'section')
          ORDER BY position ASC",
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_all(&state.db)
     .await?;
 
-    let responses: Vec<FormResponse> = sqlx::query_as::<_, FormResponse>(
+    let responses: Vec<FormResponse> = state.db.fetch_all_as::<FormResponse>(
         "SELECT id, form_id, respondent_id, respondent_email, respondent_name,
                 fill_duration_secs, score, max_score, source, submitted_at
          FROM forms.responses WHERE form_id = $1 ORDER BY submitted_at DESC",
+        params![form_id],
     )
-    .bind(form_id)
-    .fetch_all(&state.db)
     .await?;
 
     // Build CSV in memory
@@ -64,11 +64,10 @@ pub async fn csv(
         .map_err(|e| FormsError::Internal(anyhow::anyhow!(e.to_string())))?;
 
     for resp in &responses {
-        let answers: Vec<Answer> = sqlx::query_as::<_, Answer>(
+        let answers: Vec<Answer> = state.db.fetch_all_as::<Answer>(
             "SELECT * FROM forms.answers WHERE response_id = $1",
+            params![resp.id],
         )
-        .bind(resp.id)
-        .fetch_all(&state.db)
         .await?;
 
         let mut row = vec![

@@ -8,6 +8,8 @@ use axum::{
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use kubuno_db::params;
+
 use crate::{
     errors::{FormsError, Result},
     handlers::forms::load_owned_form,
@@ -29,11 +31,10 @@ pub async fn upload(
     Path(token): Path<String>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>> {
-    let form = sqlx::query_as::<_, crate::models::form::Form>(
+    let form = state.db.fetch_optional_as::<crate::models::form::Form>(
         "SELECT * FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",
+        params![&token],
     )
-    .bind(&token)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))?;
 
@@ -85,19 +86,20 @@ pub async fn upload(
             .map_err(|e| FormsError::Internal(anyhow::anyhow!(e)))?;
 
         let storage_path = full_path.to_string_lossy().to_string();
-        sqlx::query(
+        state.db.execute(
             "INSERT INTO forms.uploads
                 (id, form_id, question_id, file_name, content_type, size_bytes, storage_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            params![
+                file_id,
+                form.id,
+                question_id,
+                &orig_name,
+                content_type.clone(),
+                data.len() as i64,
+                &storage_path
+            ],
         )
-        .bind(file_id)
-        .bind(form.id)
-        .bind(question_id)
-        .bind(&orig_name)
-        .bind(&content_type)
-        .bind(data.len() as i64)
-        .bind(&storage_path)
-        .execute(&state.db)
         .await?;
 
         return Ok(Json(json!({
@@ -119,13 +121,11 @@ pub async fn download(
 ) -> Result<Response> {
     load_owned_form(&state, form_id, user.id).await?;
 
-    let upload = sqlx::query_as::<_, Upload>(
+    let upload = state.db.fetch_optional_as::<Upload>(
         "SELECT id, form_id, file_name, content_type, storage_path
          FROM forms.uploads WHERE id = $1 AND form_id = $2",
+        params![file_id, form_id],
     )
-    .bind(file_id)
-    .bind(form_id)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound("Fichier introuvable".into()))?;
 
@@ -213,11 +213,13 @@ pub async fn upload_header(
 
         let previous = form.header_image_path.clone();
         let stored = full_path.to_string_lossy().to_string();
-        if let Err(e) = sqlx::query("UPDATE forms.forms SET header_image_path = $1, updated_at = NOW() WHERE id = $2")
-            .bind(&stored)
-            .bind(form.id)
-            .execute(&state.db)
-            .await
+        // updated_at is bumped by the engine (trigger / ON UPDATE), so it is not
+        // set here.
+        if let Err(e) = state.db.execute(
+            "UPDATE forms.forms SET header_image_path = $1 WHERE id = $2",
+            params![&stored, form.id],
+        )
+        .await
         {
             tracing::error!(form_id = %form.id, error = %e, "MAJ de l'image d'en-tête échouée");
             return Err(e.into());
@@ -240,10 +242,11 @@ pub async fn delete_header(
     Path(form_id): Path<Uuid>,
 ) -> Result<StatusCode> {
     let form = load_owned_form(&state, form_id, user.id).await?;
-    if let Err(e) = sqlx::query("UPDATE forms.forms SET header_image_path = NULL, updated_at = NOW() WHERE id = $1")
-        .bind(form.id)
-        .execute(&state.db)
-        .await
+    if let Err(e) = state.db.execute(
+        "UPDATE forms.forms SET header_image_path = NULL WHERE id = $1",
+        params![form.id],
+    )
+    .await
     {
         tracing::error!(form_id = %form.id, error = %e, "Suppression de l'image d'en-tête échouée");
         return Err(e.into());
@@ -260,11 +263,10 @@ pub async fn header_image(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    let form = sqlx::query_as::<_, crate::models::form::Form>(
+    let form = state.db.fetch_optional_as::<crate::models::form::Form>(
         "SELECT * FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",
+        params![&token],
     )
-    .bind(&token)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))?;
 
@@ -366,11 +368,10 @@ pub async fn form_image(
         return Err(FormsError::NotFound("Image introuvable".into()));
     }
 
-    let form_id: Uuid = sqlx::query_scalar(
+    let form_id: Uuid = state.db.fetch_optional_scalar(
         "SELECT id FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",
+        params![&token],
     )
-    .bind(&token)
-    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))?;
 
