@@ -16,8 +16,8 @@ const FORM_COLORS = [
 
 const TEMPLATES = [
   { id: 'contact',    label: 'Contact',       icon: MessageSquare, color: '#1a73e8' },
-  { id: 'feedback',   label: 'Retour',        icon: Star,          color: '#ff9800' },
-  { id: 'survey',     label: 'Sondage',       icon: ClipboardList, color: '#673ab7' },
+  { id: 'feedback',   label: 'Feedback',        icon: Star,          color: '#ff9800' },
+  { id: 'survey',     label: 'Survey',       icon: ClipboardList, color: '#673ab7' },
   { id: 'quiz',       label: 'Quiz',          icon: Layers,        color: '#009688' },
 ]
 
@@ -63,7 +63,7 @@ export default function FormsListPage({ trashed }: { trashed?: boolean }) {
       {/* Bannière "Nouveau formulaire" */}
       {!trashed && (
         <div className="px-8 py-6 border-b border-border" style={{ background: 'var(--color-surface-0)' }}>
-          <p className="text-sm text-text-secondary mb-4 font-medium">Démarrer un nouveau formulaire</p>
+          <p className="text-sm text-text-secondary mb-4 font-medium">Start a new form</p>
           <div className="flex gap-4 overflow-x-auto pb-2">
             {/* Vierge */}
             <button
@@ -77,7 +77,7 @@ export default function FormsListPage({ trashed }: { trashed?: boolean }) {
                               hover:text-primary">
                 +
               </div>
-              <span className="text-xs text-text-secondary mt-2">Vierge</span>
+              <span className="text-xs text-text-secondary mt-2">Blank</span>
             </button>
 
             {/* Modèles */}
@@ -106,7 +106,7 @@ export default function FormsListPage({ trashed }: { trashed?: boolean }) {
       <div className="px-8 py-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-sm font-medium text-text-secondary">
-            {trashed ? 'Corbeille' : 'Formulaires récents'}
+            {trashed ? 'Trash' : 'Recent forms'}
             {forms.length > 0 && <span className="ml-2 text-text-tertiary">({forms.length})</span>}
           </h2>
           <div className="flex items-center gap-1">
