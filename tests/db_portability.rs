@@ -171,6 +171,7 @@ async fn full_suite(pool: &kubuno_db::DbPool) {
     let resp = repo::insert_response(
         pool,
         form.id,
+        None,
         Some("a@b.test"),
         Some("Alice"),
         "203.0.113.7",
@@ -186,6 +187,21 @@ async fn full_suite(pool: &kubuno_db::DbPool) {
     let after = repo::load_form(pool, form.id).await.expect("reload").expect("some");
     assert_eq!(after.response_count, 1, "the insert trigger must bump response_count");
     assert!(after.last_response_at.is_some());
+
+    // ── response limits are counted from the rows, and an account's own responses are told apart ──
+    let account = Uuid::new_v4();
+    assert_eq!(repo::count_responses(pool, form.id).await.expect("count"), 1);
+    assert_eq!(repo::count_account_responses(pool, form.id, account).await.expect("count"), 0);
+    let signed = repo::insert_response(pool, form.id, Some(account), None, None, "203.0.113.8", None, None, None)
+        .await
+        .expect("signed-in response");
+    assert_eq!(signed.respondent_id, Some(account));
+    assert_eq!(repo::count_responses(pool, form.id).await.expect("count"), 2);
+    assert_eq!(repo::count_account_responses(pool, form.id, account).await.expect("count"), 1);
+    assert_eq!(repo::count_account_responses(pool, form.id, Uuid::new_v4()).await.expect("count"), 0);
+    pool.execute("DELETE FROM forms.responses WHERE id = $1", params![signed.id])
+        .await
+        .expect("drop the signed-in response");
 
     // ── answers, including the ON CONFLICT DO NOTHING de-duplication ──
     repo::insert_answer(pool, resp.id, uq.id, &json!(42), Some(true), 3)

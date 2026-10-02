@@ -24,13 +24,15 @@ export default function PublicFormPage() {
   const { data: formData, isLoading } = useQuery({
     queryKey: ['public-form', token],
     queryFn:  () => publicFormsApi.getForm(token!).then(r => r.data.form as PublicForm),
-    enabled:  !!token && statusData?.status === 'open',
+    enabled:  !!token && (statusData?.status === 'open' || preview),
   })
 
   if (isLoading || (statusData?.status === 'open' && !formData)) {
     return <Centered><p className="text-gray-500 text-sm">Chargement du formulaire…</p></Centered>
   }
   if (!preview) {
+    if (statusData?.status === 'unpublished') return <StatusScreen message="Ce formulaire n'accepte pas encore de réponses." />
+    if (statusData?.sign_in_required) return <StatusScreen message="Connectez-vous pour répondre à ce formulaire." />
     if (statusData?.status === 'closed')  return <StatusScreen message="Ce formulaire n'accepte plus de réponses." />
     if (statusData?.status === 'expired') return <StatusScreen message="Ce formulaire a expiré." />
     if (statusData?.status === 'full')    return <StatusScreen message="Ce formulaire a atteint son nombre maximum de réponses." />

@@ -29,6 +29,14 @@ pub enum FormsError {
     #[error("Formulaire fermé ou expiré")]
     FormClosed,
 
+    /// The form only accepts respondents signed in to an account.
+    #[error("Connexion requise pour répondre à ce formulaire")]
+    SignInRequired,
+
+    /// The form accepts one response per account and this account already answered.
+    #[error("Vous avez déjà répondu à ce formulaire")]
+    AlreadyResponded,
+
     #[error("Erreur base de données")]
     Database(#[from] sqlx::Error),
 
@@ -50,6 +58,8 @@ impl IntoResponse for FormsError {
             FormsError::Conflict(_)       => (StatusCode::CONFLICT,              "CONFLICT",        self.to_string()),
             FormsError::TooManyRequests   => (StatusCode::TOO_MANY_REQUESTS,     "TOO_MANY_REQUESTS", self.to_string()),
             FormsError::FormClosed        => (StatusCode::GONE,                  "FORM_CLOSED",     self.to_string()),
+            FormsError::SignInRequired    => (StatusCode::UNAUTHORIZED,          "SIGN_IN_REQUIRED", self.to_string()),
+            FormsError::AlreadyResponded  => (StatusCode::CONFLICT,              "ALREADY_RESPONDED", self.to_string()),
             FormsError::Database(e) => {
                 tracing::error!(error = %e, "Database error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR", "Erreur base de données".to_string())

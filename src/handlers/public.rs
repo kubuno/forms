@@ -1,5 +1,6 @@
 use axum::{
     extract::{ConnectInfo, Path, State},
+    http::HeaderMap,
     Json,
 };
 use serde_json::{json, Value};
@@ -13,20 +14,31 @@ use kubuno_forms_core::{
 
 use crate::{
     errors::{FormsError, Result},
+    middleware::{client_ip, optional_user, FormsUser},
     models::{form::*, logic::ConditionalRule, response::*},
-    services::{repo, scoring},
+    services::{
+        gate::{self, Availability, EmailError, RespondentPolicy},
+        repo, scoring,
+    },
     state::AppState,
 };
 
 
 /// Returns the public view of a form (title, description, questions, theme, logic).
 /// Sensitive quiz data (correct answers, points, feedback) is never exposed here.
+///
+/// The form's owner may open it while it does not take answers (the editor's preview); anyone else gets it only
+/// while it is open, and signed in when the form requires it.
 pub async fn get_form(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(token): Path<String>,
 ) -> Result<Json<Value>> {
+    let caller = optional_user(&state, &headers);
     let form = load_public_form(&state, &token).await?;
-    check_accepting(&form)?;
+    if !caller.as_ref().is_some_and(|u| u.id == form.owner_id) {
+        check_respondent_access(&state, &form, caller.as_ref()).await?;
+    }
 
     let questions = state.db.fetch_all_as::<Question>(
         "SELECT * FROM forms.questions WHERE form_id = $1 ORDER BY position ASC",
@@ -81,52 +93,65 @@ pub async fn get_form(
     Ok(Json(json!({ "form": public_form })))
 }
 
-/// Returns the status of a form (open, closed, expired, full).
+/// Returns the status of a form (open, unpublished, closed, expired, full), and whether the caller must sign in
+/// to answer it.
 pub async fn status(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(token): Path<String>,
 ) -> Result<Json<Value>> {
+    let caller = optional_user(&state, &headers);
     let form = load_public_form(&state, &token).await?;
-
-    let accepting = form.settings.get("acceptingResponses")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    if !accepting {
-        return Ok(Json(json!({ "status": "closed" })));
+    let count = repo::count_responses(&state.db, form.id).await?;
+    let availability = gate::availability(&form.settings, form.published_at.is_some(), count, chrono::Utc::now());
+    let policy = RespondentPolicy::from_settings(&form.settings);
+    let sign_in_required = policy.require_sign_in && caller.is_none();
+    if availability != Availability::Open {
+        return Ok(Json(json!({ "status": availability.as_str() })));
     }
-
-    if let Some(close_date) = form.settings.get("closeDate").and_then(|v| v.as_str()) {
-        if let Ok(dt) = close_date.parse::<chrono::DateTime<chrono::Utc>>() {
-            if chrono::Utc::now() > dt {
-                return Ok(Json(json!({ "status": "expired" })));
-            }
-        }
-    }
-
-    if let Some(max) = form.settings.get("maxResponses").and_then(|v| v.as_i64()) {
-        if form.response_count as i64 >= max {
-            return Ok(Json(json!({ "status": "full" })));
-        }
-    }
-
-    Ok(Json(json!({ "status": "open", "response_count": form.response_count })))
+    Ok(Json(json!({ "status": "open", "response_count": count, "sign_in_required": sign_in_required })))
 }
 
-/// Public form submission (anonymous respondent).
+/// Public form submission (anonymous or signed-in respondent).
+///
+/// Every rule of the form is enforced here, whatever the page did: the form must be published and open (not
+/// closed, past its date or full), a sign-in form needs a signed-in caller, an e-mail form needs a valid e-mail
+/// (the account's own on a sign-in form), and a one-response form takes one response per account.
 pub async fn submit(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Path(token): Path<String>,
     Json(body): Json<SubmitFormDto>,
 ) -> Result<Json<Value>> {
+    let caller = optional_user(&state, &headers);
     let form = load_public_form(&state, &token).await?;
-    check_accepting(&form)?;
+    let policy = check_respondent_access(&state, &form, caller.as_ref()).await?;
     validate_respondent(&body)?;
+    let respondent_email = gate::respondent_email(
+        &policy,
+        caller.as_ref().map(|u| u.email.as_str()),
+        body.respondent_email.as_deref(),
+    )
+    .map_err(|e| match e {
+        EmailError::Required => FormsError::Validation("Adresse e-mail requise".into()),
+        EmailError::Invalid => FormsError::Validation("Adresse e-mail invalide".into()),
+    })?;
+    // The account is recorded only on a sign-in form: elsewhere a response stays anonymous even when the
+    // respondent happens to be signed in.
+    let respondent_id = if policy.require_sign_in { caller.as_ref().map(|u| u.id) } else { None };
+    if policy.one_response_per_account {
+        if let Some(id) = respondent_id {
+            if repo::count_account_responses(&state.db, form.id, id).await? > 0 {
+                return Err(FormsError::AlreadyResponded);
+            }
+        }
+    }
+    let ip = client_ip(&state, &headers, addr.ip()).to_string();
 
     // Anti-spam: cooldown between submissions from the same IP (instance setting).
     let cooldown = state.instance().submission_cooldown_secs;
     if cooldown > 0 {
-        let ip = addr.ip().to_string();
         // The cutoff is computed in Rust and bound, rather than built with
         // NOW()/INTERVAL, which the three engines spell differently.
         let cutoff = chrono::Utc::now() - chrono::Duration::seconds(cooldown);
@@ -185,13 +210,13 @@ pub async fn submit(
 
     // Insert the response (with score when this is a quiz). The response-count
     // increment on the form is done by the insert trigger on every engine.
-    let ip_str = addr.ip().to_string();
     let response = repo::insert_response(
         &state.db,
         form.id,
-        body.respondent_email.as_deref(),
+        respondent_id,
+        respondent_email.as_deref(),
         body.respondent_name.as_deref(),
-        &ip_str,
+        &ip,
         body.fill_duration_secs,
         if has_quiz { Some(total_score) } else { None },
         if has_quiz { Some(max_score) } else { None },
@@ -402,13 +427,8 @@ fn plain_title(html: &str) -> String {
     out.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").trim().to_string()
 }
 
-/// Checks the respondent fields of a submission (an e-mail, when given, must be a valid address).
+/// Checks the respondent fields of a submission (the e-mail is checked by `gate::respondent_email`).
 fn validate_respondent(body: &SubmitFormDto) -> Result<()> {
-    if let Some(email) = body.respondent_email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
-        if email.chars().count() > 254 || !kubuno_forms_core::validate::is_valid_email(email) {
-            return Err(FormsError::Validation("Adresse e-mail invalide".into()));
-        }
-    }
     if body.respondent_name.as_deref().is_some_and(|n| n.chars().count() > MAX_RESPONDENT_NAME) {
         return Err(FormsError::Validation("Nom trop long".into()));
     }
@@ -417,7 +437,12 @@ fn validate_respondent(body: &SubmitFormDto) -> Result<()> {
     }
     Ok(())
 }
-async fn load_public_form(state: &AppState, token: &str) -> Result<crate::models::form::Form> {
+/// Loads the (non-trashed) form behind a public token. A token that cannot be one (public tokens are at most
+/// 64 hex characters) is answered like an unknown one, without a database round trip.
+pub(crate) async fn load_public_form(state: &AppState, token: &str) -> Result<crate::models::form::Form> {
+    if token.is_empty() || token.len() > 64 || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(FormsError::NotFound("Formulaire introuvable".into()));
+    }
     state.db.fetch_optional_as::<crate::models::form::Form>(
         "SELECT * FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",
         params![token],
@@ -426,24 +451,23 @@ async fn load_public_form(state: &AppState, token: &str) -> Result<crate::models
     .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))
 }
 
-fn check_accepting(form: &crate::models::form::Form) -> Result<()> {
-    let accepting = form.settings.get("acceptingResponses")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    if !accepting {
-        return Err(FormsError::FormClosed);
+/// Checks that `caller` may answer `form` now, and returns what the form asks of its respondents. Shared by the
+/// public form view, the submission and the file upload, so none of them can be reached on a form that does not
+/// take answers.
+pub(crate) async fn check_respondent_access(
+    state: &AppState,
+    form: &crate::models::form::Form,
+    caller: Option<&FormsUser>,
+) -> Result<RespondentPolicy> {
+    let count = repo::count_responses(&state.db, form.id).await?;
+    match gate::availability(&form.settings, form.published_at.is_some(), count, chrono::Utc::now()) {
+        Availability::Open => {}
+        Availability::Full => return Err(FormsError::Conflict("Nombre maximum de réponses atteint".into())),
+        Availability::Unpublished | Availability::Closed | Availability::Expired => return Err(FormsError::FormClosed),
     }
-    if let Some(close_date) = form.settings.get("closeDate").and_then(|v| v.as_str()) {
-        if let Ok(dt) = close_date.parse::<chrono::DateTime<chrono::Utc>>() {
-            if chrono::Utc::now() > dt {
-                return Err(FormsError::FormClosed);
-            }
-        }
+    let policy = RespondentPolicy::from_settings(&form.settings);
+    if policy.require_sign_in && caller.is_none() {
+        return Err(FormsError::SignInRequired);
     }
-    if let Some(max) = form.settings.get("maxResponses").and_then(|v| v.as_i64()) {
-        if form.response_count as i64 >= max {
-            return Err(FormsError::Conflict("Nombre maximum de réponses atteint".into()));
-        }
-    }
-    Ok(())
+    Ok(policy)
 }

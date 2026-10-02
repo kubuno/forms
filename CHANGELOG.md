@@ -50,6 +50,21 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ### Security
 
+- **The public link now enforces every respondent rule of the form on the server.** Until now these rules were
+  applied by the page only, so a response posted straight to the API ignored them:
+  - an **unpublished** form takes no response and shows nothing to strangers (its owner can still preview it);
+    publish the form to open it — a form whose link was shared without ever being published stops taking answers;
+  - **"Require sign-in"** is enforced: an anonymous visitor can neither open, answer nor upload a file to such a
+    form (HTTP 401, `SIGN_IN_REQUIRED`), and the response records the account that answered;
+  - **"Collect e-mail addresses"** makes the e-mail required and checked; on a sign-in form the account's own
+    address is stored rather than a typed one; a form that does not collect e-mails stores none;
+  - **"Limit to one response"** (sign-in forms) refuses a second response from the same account (HTTP 409);
+  - the **response limit** counts the stored responses instead of a cached counter that a MySQL server without
+    trigger rights never updated;
+  - a **file upload** goes through the same checks, and a form without a file question takes no files.
+- **The anti-spam delay applies per respondent again.** Behind the core every request came from the loopback, so
+  one response blocked every other respondent of the form for the delay; the respondent address resolved by the
+  core is now used.
 - **Response exports, uploaded answer files and videos from Drive or Media no longer rely on the
   access-token cookie the web client used to keep readable by page scripts**; they use short-lived signed
   tickets. Public form pages are unchanged. Requires a Kubuno core that issues signed tickets (`POST /api/v1/auth/tickets`) and `@kubuno/sdk` with the signed-URL helpers.

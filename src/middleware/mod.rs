@@ -40,3 +40,49 @@ pub async fn require_auth(
         .insert(FormsUser { id: user.id, role: user.role, email: user.email });
     Ok(next.run(req).await)
 }
+
+/// The caller of a PUBLIC route, when signed in: the core forwards the signed identity of a logged-in
+/// visitor on every proxied request, public routes included. Absent or invalid → anonymous.
+pub fn optional_user(state: &AppState, headers: &axum::http::HeaderMap) -> Option<FormsUser> {
+    let token = headers.get(kubuno_modauth::TOKEN_HEADER)?.to_str().ok()?;
+    let user = kubuno_modauth::verify(state.settings.core.internal_secret.as_bytes(), token, MODULE_ID).ok()?;
+    Some(FormsUser { id: user.id, role: user.role, email: user.email })
+}
+
+/// The respondent's IP address. Behind the core every request comes from the loopback, so the address the core
+/// resolved (`X-Kubuno-Client-IP`) is used — but only on a request that carries this module's secret, i.e. one
+/// the core itself forwarded; anything else falls back to the TCP peer.
+pub fn client_ip(state: &AppState, headers: &axum::http::HeaderMap, peer: std::net::IpAddr) -> std::net::IpAddr {
+    let secret = state.settings.core.internal_secret.as_bytes();
+    let from_core = !secret.is_empty()
+        && headers
+            .get("x-internal-secret")
+            .is_some_and(|v| constant_time_eq(v.as_bytes(), secret));
+    if !from_core {
+        return peer;
+    }
+    headers
+        .get("x-kubuno-client-ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(peer)
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::constant_time_eq;
+
+    #[test]
+    fn secret_comparison() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+}

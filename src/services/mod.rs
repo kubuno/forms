@@ -1,3 +1,4 @@
+pub mod gate;
 pub mod repo;
 pub mod retention;
 pub mod scoring;

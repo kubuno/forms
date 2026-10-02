@@ -28,15 +28,27 @@ struct Upload {
 /// Returns a file descriptor that the respondent stores as the answer value.
 pub async fn upload(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Path(token): Path<String>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>> {
-    let form = state.db.fetch_optional_as::<crate::models::form::Form>(
-        "SELECT * FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",
-        params![&token],
+    // Same gate as a submission: no file lands on a form that is unpublished, closed, past its date, full, or
+    // that requires a signed-in respondent.
+    let caller = crate::middleware::optional_user(&state, &headers);
+    let form = crate::handlers::public::load_public_form(&state, &token).await?;
+    crate::handlers::public::check_respondent_access(&state, &form, caller.as_ref()).await?;
+    // A form without a file question takes no files at all.
+    let file_questions: i64 = state.db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.questions WHERE form_id = $1 AND question_type = 'file_upload'",
+            state.db.backend().count_bigint("*")
+        ),
+        params![form.id],
     )
-    .await?
-    .ok_or_else(|| FormsError::NotFound("Formulaire introuvable".into()))?;
+    .await?;
+    if file_questions == 0 {
+        return Err(FormsError::Validation("Ce formulaire n'accepte pas de fichiers".into()));
+    }
 
     let max_bytes = state.instance().max_file_upload_mb as u64 * 1024 * 1024;
 

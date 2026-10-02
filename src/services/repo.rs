@@ -174,6 +174,7 @@ pub async fn update_question(
 pub async fn insert_response(
     db: &DbPool,
     form_id: Uuid,
+    respondent_id: Option<Uuid>,
     respondent_email: Option<&str>,
     respondent_name: Option<&str>,
     ip_address: &str,
@@ -185,8 +186,8 @@ pub async fn insert_response(
     let sql = format!(
         "INSERT INTO forms.responses \
             (id, form_id, respondent_email, respondent_name, ip_address, \
-             fill_duration_secs, score, max_score, source) \
-         VALUES ($1, $2, $3, $4, {ip}, $6, $7, $8, 'web')",
+             fill_duration_secs, score, max_score, source, respondent_id) \
+         VALUES ($1, $2, $3, $4, {ip}, $6, $7, $8, 'web', $9)",
         ip = inet_placeholder(db.backend(), 5),
     );
     db.execute(
@@ -199,13 +200,37 @@ pub async fn insert_response(
             ip_address,
             fill_duration_secs,
             score,
-            max_score
+            max_score,
+            respondent_id
         ],
     )
     .await?;
     db.fetch_one_as::<FormResponse>(
         &format!("SELECT {RESPONSE_COLS} FROM forms.responses WHERE id = $1"),
         params![id],
+    )
+    .await
+}
+
+/// Number of responses stored for a form. Counted rather than read from `forms.response_count`, which a
+/// database trigger maintains and which a MySQL server without trigger rights leaves at zero: a response limit
+/// must not depend on it.
+pub async fn count_responses(db: &DbPool, form_id: Uuid) -> Result<i64, sqlx::Error> {
+    db.fetch_scalar(
+        &format!("SELECT {} FROM forms.responses WHERE form_id = $1", db.backend().count_bigint("*")),
+        params![form_id],
+    )
+    .await
+}
+
+/// Number of responses an account submitted to a form (one-response-per-account forms).
+pub async fn count_account_responses(db: &DbPool, form_id: Uuid, respondent_id: Uuid) -> Result<i64, sqlx::Error> {
+    db.fetch_scalar(
+        &format!(
+            "SELECT {} FROM forms.responses WHERE form_id = $1 AND respondent_id = $2",
+            db.backend().count_bigint("*")
+        ),
+        params![form_id, respondent_id],
     )
     .await
 }

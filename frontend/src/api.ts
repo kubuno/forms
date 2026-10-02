@@ -353,7 +353,7 @@ export const publicFormsApi = {
   getForm: (token: string) =>
     api.get<{ form: unknown }>(`/forms/public/${token}`),
   status: (token: string) =>
-    api.get<{ status: 'open' | 'closed' | 'expired' | 'full'; response_count?: number }>(`/forms/public/${token}/status`),
+    api.get<{ status: 'open' | 'unpublished' | 'closed' | 'expired' | 'full'; response_count?: number; sign_in_required?: boolean }>(`/forms/public/${token}/status`),
   submit: (token: string, data: {
     answers: AnswerInput[]
     respondent_email?: string
