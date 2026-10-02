@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "source": "https://github.com/kubuno/core",
+  "ref": "vectors-v0.1.0",
+  "path": "frontend/packages/vectors",
+  "files": {
+    "index.d.ts": "sha256:256daec129c86c0d2567b0d2aa138d8f3e27cde1e760c95a8436af16037ef45c",
+    "index.js": "sha256:8001e0cb9d860c63c9fc0dc0858b1f9aa6e4e9e0f530b91db9f4c757bf7fe42f"
+  }
+}

@@ -1473,6 +1473,7 @@ dependencies = [
  "futures",
  "hex",
  "kubuno-db",
+ "kubuno-forms-core",
  "kubuno-modauth",
  "kubuno-seccomp",
  "rand 0.8.6",
@@ -1491,6 +1492,15 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "validator",
+]
+
+[[package]]
+name = "kubuno-forms-core"
+version = "0.1.0"
+dependencies = [
+ "kubuno-vectors",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1514,6 +1524,17 @@ source = "git+https://github.com/kubuno/core?tag=seccomp-v0.1.1#6c555459961c602b
 dependencies = [
  "libc",
  "tracing",
+]
+
+[[package]]
+name = "kubuno-vectors"
+version = "0.1.0"
+source = "git+https://github.com/kubuno/core?tag=vectors-v0.1.0#0a6eb1d8ceb45569ce3bf6d6835238e53501b305"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

@@ -11,6 +11,12 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ### Added
 
+- **Shared forms core (for developers).** `crates/kubuno-forms-core` is a sans-IO Rust crate holding the
+  conditional logic (the twelve operators, hidden sections, jumps, the questions a respondent reached) and the
+  validation of answers. The server runs it on every submission; the public page implements the same functions in
+  TypeScript (`src/logic.ts`); both run the same conformance vectors (`crates/kubuno-forms-core/vectors`, format
+  of the core repository's `kubuno-vectors`) in CI on Linux, Windows and macOS, so they cannot drift apart.
+
 - **Choice of database engine.** Forms now runs on **PostgreSQL**,
   **MySQL/MariaDB** or **SQLite** — the administrator picks one in
   `[database] engine` (`postgres` by default) and the same binary connects to
@@ -44,6 +50,20 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ### Security
 
+- **Required questions can no longer be skipped on forms that use conditional logic.** The server could not
+  evaluate the logic, so it did not check required questions at all on any form with a rule: a response sent
+  straight to the API, without the page, was accepted with required answers missing. The server now evaluates
+  the logic itself, with the same rules as the page (shared `kubuno-forms-core`), and refuses a response that
+  leaves a required question unanswered among the questions the respondent actually reached (a section hidden by
+  a rule, or skipped by a jump in one-question-per-screen mode, is not required). The refusal (HTTP 422) names
+  every question at fault with a stable code.
+- **Answers are checked against their question.** An e-mail, URL, phone number, number, date or time must be
+  well formed, a choice must be one of the question's options (rows and columns for grids), a scale or rating must
+  be in its range, a file must have been uploaded to this form, and texts have a size limit. Previously anything
+  was stored as sent.
+- **Answers to questions of another form, to content blocks or to questions the respondent did not reach are no
+  longer stored** with a response.
+
 - **Security fixes from the shared database layer (kubuno-db 0.9.0).** The
   database password can no longer appear in a log through the debug output of
   the database settings.
@@ -59,6 +79,14 @@ number at release time, and CI publishes that section as the GitHub Release note
   different names look like one.
 
 ### Fixed
+
+- **A form that collects the respondent's e-mail could not be submitted** once an address was typed in the
+  classic layout: the page sent the address as if it were an answer to a question, which the server refused. It
+  is now sent only as the respondent's e-mail, and a malformed address is pointed out before sending.
+- **The public page explains a refused answer.** It checks each answer with the same rules as the server before
+  moving on or sending, and shows under the question why it is refused (required, wrong format, choice not
+  offered, out of range, too long) instead of a generic error; a refusal by the server marks the questions it
+  names.
 
 - **A clean checkout builds again with `--locked`.** The lock file pinned `kubuno-modauth` and `kubuno-seccomp`
   to commits their tags no longer point at, so a build without a warm Cargo cache could not fetch them; both are

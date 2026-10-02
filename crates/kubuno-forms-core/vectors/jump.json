@@ -1,0 +1,110 @@
+{
+  "$schema": "https://github.com/kubuno/core/blob/main/vectors/conformance-vectors.schema.json",
+  "format": 1,
+  "suite": "forms.jump",
+  "version": "1.0.0",
+  "description": "Where the one-at-a-time flow goes after a question. Input: { question_id, rules, answers }. Output: null (advance to the next step), { kind: 'goto', target_id }, { kind: 'thankyou' } or { kind: 'submit' }. Only rules triggered by question_id with a jump action count, by ascending position; the first matching one wins; a goto without target is skipped.",
+  "reference": "forms/crates/kubuno-forms-core logic::resolve_jump; frontend/src/logic.ts resolveJump",
+  "cases": [
+    { "id": "no-rule", "input": { "question_id": "q1", "rules": [], "answers": {} }, "expected": null },
+    {
+      "id": "goto",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "b", "action": "go_to_section", "target_section_id": "s2", "position": 0 }],
+        "answers": { "q1": "B" }
+      },
+      "expected": { "kind": "goto", "target_id": "s2" }
+    },
+    {
+      "id": "skip-to-question",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "skip_to_question", "target_section_id": "q9", "position": 0 }],
+        "answers": { "q1": 3 }
+      },
+      "expected": { "kind": "goto", "target_id": "q9" }
+    },
+    {
+      "id": "not-matched",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "b", "action": "go_to_section", "target_section_id": "s2", "position": 0 }],
+        "answers": { "q1": "a" }
+      },
+      "expected": null
+    },
+    {
+      "id": "other-trigger",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q2", "operator": "is_empty", "compare_value": null, "action": "submit_form", "target_section_id": null, "position": 0 }],
+        "answers": {}
+      },
+      "expected": null
+    },
+    {
+      "id": "submit",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "no", "action": "submit_form", "target_section_id": null, "position": 0 }],
+        "answers": { "q1": "no" }
+      },
+      "expected": { "kind": "submit" }
+    },
+    {
+      "id": "thankyou",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q1", "operator": "less_than", "compare_value": 18, "action": "jump_to_thankyou", "target_section_id": null, "position": 0 }],
+        "answers": { "q1": "17" }
+      },
+      "expected": { "kind": "thankyou" }
+    },
+    {
+      "id": "lowest-position-wins",
+      "input": {
+        "question_id": "q1",
+        "rules": [
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "go_to_section", "target_section_id": "late", "position": 5 },
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "go_to_section", "target_section_id": "early", "position": 1 }
+        ],
+        "answers": { "q1": "x" }
+      },
+      "expected": { "kind": "goto", "target_id": "early" }
+    },
+    {
+      "id": "equal-positions-keep-array-order",
+      "input": {
+        "question_id": "q1",
+        "rules": [
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "go_to_section", "target_section_id": "first", "position": 0 },
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "go_to_section", "target_section_id": "second", "position": 0 }
+        ],
+        "answers": { "q1": "x" }
+      },
+      "expected": { "kind": "goto", "target_id": "first" }
+    },
+    {
+      "id": "goto-without-target-falls-through",
+      "input": {
+        "question_id": "q1",
+        "rules": [
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "go_to_section", "target_section_id": null, "position": 0 },
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "submit_form", "target_section_id": null, "position": 1 }
+        ],
+        "answers": { "q1": "x" }
+      },
+      "expected": { "kind": "submit" }
+    },
+    {
+      "id": "visibility-rules-are-not-jumps",
+      "input": {
+        "question_id": "q1",
+        "rules": [{ "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "show_section", "target_section_id": "s1", "position": 0 }],
+        "answers": { "q1": "x" }
+      },
+      "expected": null
+    }
+  ]
+}

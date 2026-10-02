@@ -4,7 +4,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { CheckCircle2, ChevronUp, ChevronDown, ArrowRight, Trophy, ArrowLeft, EyeOff, Link2 as LinkIcon } from 'lucide-react'
 import { publicFormsApi, type AnswerInput, type PublicForm, type PublicQuestion, type QuizResult } from './api'
 import QuestionFiller from './QuestionFiller'
-import { computeHidden, resolveJump } from './logic'
+import { checkAnswer, computeHidden, flowModeOf, isValidEmail, resolveJump, validateSubmission, type IssueCode } from './logic'
 import { isContentType, hasFloatingLabel } from './questionTypes'
 
 // ── Page entrypoint ──────────────────────────────────────────────────────────
@@ -91,6 +91,37 @@ function PreviewChrome({ token, closed, children }: {
 
 // ── Shared submission logic ──────────────────────────────────────────────────
 
+/** The answers to send: question answers only (keys starting with "__" are page fields such as the e-mail). */
+function answerList(answers: Record<string, unknown>): AnswerInput[] {
+  return Object.entries(answers)
+    .filter(([k, v]) => !k.startsWith('__') && v != null && !(typeof v === 'string' && v === '') && !(Array.isArray(v) && v.length === 0))
+    .map(([question_id, value]) => ({ question_id, value }))
+}
+
+/** Message shown under a question the shared validation refused (same codes as the server). */
+function issueMessage(code: IssueCode): string {
+  switch (code) {
+    case 'required':       return 'Cette question est obligatoire.'
+    case 'invalid_format': return 'Le format de cette réponse n’est pas valide.'
+    case 'invalid_choice': return 'Ce choix n’est pas proposé.'
+    case 'out_of_range':   return 'Cette valeur est hors des limites.'
+    case 'too_long':       return 'Cette réponse est trop longue.'
+    default:               return 'Cette réponse n’est pas valide.'
+  }
+}
+
+/** The server's refusal of a submission (422): its message and, per question, the code of the problem. */
+function serverRefusal(error: unknown): { message: string | null; issues: Map<string, IssueCode> } {
+  const data = (error as { response?: { data?: { message?: unknown; issues?: unknown } } } | null)?.response?.data
+  const issues = new Map<string, IssueCode>()
+  if (Array.isArray(data?.issues)) {
+    for (const i of data.issues as { question_id?: unknown; code?: unknown }[]) {
+      if (typeof i.question_id === 'string' && typeof i.code === 'string') issues.set(i.question_id, i.code as IssueCode)
+    }
+  }
+  return { message: typeof data?.message === 'string' ? data.message : null, issues }
+}
+
 function useSubmission(form: PublicForm, token: string) {
   const [answers, setAnswers] = useState<Record<string, unknown>>({})
   const [done, setDone] = useState(false)
@@ -100,10 +131,9 @@ function useSubmission(form: PublicForm, token: string) {
 
   const mutation = useMutation({
     mutationFn: () => {
-      const list: AnswerInput[] = Object.entries(answers)
-        .filter(([, v]) => v != null && !(typeof v === 'string' && v === '') && !(Array.isArray(v) && v.length === 0))
-        .map(([question_id, value]) => ({ question_id, value }))
-      const email = form.settings.collectEmail ? (answers.__email as string | undefined) : undefined
+      const list = answerList(answers)
+      const typed = typeof answers.__email === 'string' ? answers.__email.trim() : ''
+      const email = form.settings.collectEmail && typed !== '' ? typed : undefined
       return publicFormsApi.submit(token, {
         answers: list,
         respondent_email: email,
@@ -179,14 +209,15 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
   const setAnswer = (qid: string, v: unknown) => setAnswers(prev => ({ ...prev, [qid]: v }))
 
 
-  const isAnswered = (q: PublicQuestion) => {
-    const v = answers[q.id]
-    return v != null && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.length === 0)
-  }
+  // Problem of the current step's answer, as the server would judge it (shared rules of logic.ts).
+  const [stepIssue, setStepIssue] = useState<IssueCode | null>(null)
 
   const goNext = useCallback(() => {
     if (!current) { mutation.mutate(); return }
-    if (current.required && !isContentType(current.question_type) && !isAnswered(current)) return
+    const verdict = checkAnswer(current, answers[current.id])
+    const issue = verdict.issue ?? (current.required && !isContentType(current.question_type) && !verdict.answered ? 'required' : null)
+    setStepIssue(issue)
+    if (issue) return
 
     const jump = resolveJump(current.id, form.rules, answers)
     if (jump?.kind === 'submit' || jump?.kind === 'thankyou') { animateOut('up'); mutation.mutate(); return }
@@ -211,6 +242,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
   }
 
   const transitionTo = (id: string, dir: 'up' | 'down') => {
+    setStepIssue(null)
     setAnim(dir === 'up' ? 'out-up' : 'out-down')
     setTimeout(() => { setCurrentId(id); setAnim('in') }, 180)
   }
@@ -310,6 +342,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
                     large
                     autoFocus
                   />
+                  {stepIssue && <p className="mt-3 text-sm text-red-500">{issueMessage(stepIssue)}</p>}
                 </div>
               )}
 
@@ -328,7 +361,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
 
         {mutation.isError && (
           <div className="mt-6 ml-7 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-            Une erreur s'est produite. Veuillez réessayer.
+            {serverRefusal(mutation.error).message ?? "Une erreur s'est produite. Veuillez réessayer."}
           </div>
         )}
       </div>
@@ -355,7 +388,8 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
 function ClassicShell({ form, token, paged = false }: { form: PublicForm; token: string; paged?: boolean }) {
   const color = form.theme.primaryColor ?? '#673ab7'
   const { answers, setAnswers, done, confirmation, quizResult, mutation } = useSubmission(form, token)
-  const [missing, setMissing] = useState<Set<string>>(new Set())
+  const [missing, setMissing] = useState<Map<string, IssueCode>>(new Map())
+  const [emailInvalid, setEmailInvalid] = useState(false)
 
   const welcome = form.questions.find(q => q.question_type === 'welcome_screen')
   const thankYou = form.questions.find(q => q.question_type === 'thank_you_screen')
@@ -390,32 +424,36 @@ function ClassicShell({ form, token, paged = false }: { form: PublicForm; token:
 
   const setAnswer = (qid: string, v: unknown) => setAnswers(prev => ({ ...prev, [qid]: v }))
 
-  /** Validates the current page before moving on. */
+  /** Validates the current page before moving on (same rules as the server, per question). */
   const goNextPage = () => {
-    const miss = new Set<string>()
+    const found = new Map<string, IssueCode>()
     for (const q of shown) {
-      if (q.required && !isContentType(q.question_type)) {
-        const v = answers[q.id]
-        if (v == null || v === '' || (Array.isArray(v) && !v.length)) miss.add(q.id)
-      }
+      if (isContentType(q.question_type)) continue
+      const verdict = checkAnswer(q, answers[q.id])
+      if (verdict.issue) found.set(q.id, verdict.issue)
+      else if (q.required && !verdict.answered) found.set(q.id, 'required')
     }
-    setMissing(miss)
-    if (miss.size) return
+    setMissing(found)
+    if (found.size) return
     setPage(p => p + 1)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  /** Validates the whole submission exactly as the server will before sending it. */
   const handleSubmit = () => {
-    const miss = new Set<string>()
-    for (const q of visible) {
-      if (q.required && !isContentType(q.question_type)) {
-        const v = answers[q.id]
-        if (v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)) miss.add(q.id)
-      }
-    }
-    setMissing(miss)
-    if (miss.size === 0) mutation.mutate()
+    const verdict = validateSubmission(form.questions, form.rules, flowModeOf(form.settings), answerList(answers))
+    setMissing(new Map(verdict.issues.map(i => [i.question_id, i.code])))
+    const email = typeof answers.__email === 'string' ? answers.__email.trim() : ''
+    const badEmail = !!form.settings.collectEmail && email !== '' && !isValidEmail(email)
+    setEmailInvalid(badEmail)
+    if (verdict.issues.length === 0 && !badEmail) mutation.mutate()
   }
+
+  // A refusal by the server (422) marks the questions it names.
+  useEffect(() => {
+    const refused = serverRefusal(mutation.error).issues
+    if (refused.size) setMissing(refused)
+  }, [mutation.error])
 
   const bg = form.theme.backgroundColor || '#f3f0fb'
   if (done) return <DoneScreen color={color} confirmation={confirmation} quizResult={quizResult} thankYou={thankYou} bg={bg} />
@@ -451,6 +489,7 @@ function ClassicShell({ form, token, paged = false }: { form: PublicForm; token:
                 <label className="text-sm text-gray-700 block mb-1">Adresse e-mail <span className="text-red-500">*</span></label>
                 <input type="email" value={(answers.__email as string) ?? ''} onChange={e => setAnswer('__email', e.target.value)}
                   placeholder="nom@exemple.com" className="w-full border-b border-gray-300 outline-none py-1 text-sm text-gray-700 bg-transparent" />
+                {emailInvalid && <p className="text-xs text-red-500 mt-2">{issueMessage('invalid_format')}</p>}
               </div>
             )}
           </div>
@@ -489,7 +528,7 @@ function ClassicShell({ form, token, paged = false }: { form: PublicForm; token:
               <div className={floatingLabel ? '' : 'mt-3'}>
                 <QuestionFiller question={q} value={answers[q.id]} onChange={v => setAnswer(q.id, v)} primaryColor={color} token={token} />
               </div>
-              {missing.has(q.id) && <p className="text-xs text-red-500 mt-2">Cette question est obligatoire.</p>}
+              {missing.has(q.id) && <p className="text-xs text-red-500 mt-2">{issueMessage(missing.get(q.id) ?? 'required')}</p>}
             </div>
           )
         })}
@@ -514,11 +553,11 @@ function ClassicShell({ form, token, paged = false }: { form: PublicForm; token:
               </button>
             )}
           </div>
-          <button onClick={() => { setAnswers({}); setMissing(new Set()) }} className="text-sm text-gray-500 hover:text-gray-700">Effacer le formulaire</button>
+          <button onClick={() => { setAnswers({}); setMissing(new Map()); setEmailInvalid(false) }} className="text-sm text-gray-500 hover:text-gray-700">Effacer le formulaire</button>
         </div>
 
         {mutation.isError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">Une erreur s'est produite. Veuillez réessayer.</div>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">{serverRefusal(mutation.error).message ?? "Une erreur s'est produite. Veuillez réessayer."}</div>
         )}
         <PoweredBy />
       </div>

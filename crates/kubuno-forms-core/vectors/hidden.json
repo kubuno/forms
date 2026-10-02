@@ -1,0 +1,178 @@
+{
+  "$schema": "https://github.com/kubuno/core/blob/main/vectors/conformance-vectors.schema.json",
+  "format": 1,
+  "suite": "forms.hidden",
+  "version": "1.0.0",
+  "description": "Hidden questions. Input: { questions: [{id, question_type}], rules: [{trigger_question_id, operator, compare_value, action, target_section_id, position}], answers: {id: value} }. Output: the hidden question ids, sorted. show_section targets start hidden and appear when one of their rules matches; hide_section targets are hidden when their rule matches; rules apply in array order; a section target controls itself up to the next section.",
+  "reference": "forms/crates/kubuno-forms-core logic::compute_hidden; frontend/src/logic.ts computeHidden",
+  "cases": [
+    {
+      "id": "no-rules",
+      "input": { "questions": [{ "id": "q1", "question_type": "short_text" }], "rules": [], "answers": {} },
+      "expected": []
+    },
+    {
+      "id": "show-section/default-hidden",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" },
+          { "id": "q3", "question_type": "long_text" },
+          { "id": "s2", "question_type": "section" },
+          { "id": "q4", "question_type": "short_text" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 0 }],
+        "answers": {}
+      },
+      "expected": ["q2", "q3", "s1"]
+    },
+    {
+      "id": "show-section/revealed",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" },
+          { "id": "s2", "question_type": "section" },
+          { "id": "q4", "question_type": "short_text" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 0 }],
+        "answers": { "q1": "yes" }
+      },
+      "expected": []
+    },
+    {
+      "id": "hide-section/matched",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "no", "action": "hide_section", "target_section_id": "s1", "position": 0 }],
+        "answers": { "q1": "No" }
+      },
+      "expected": ["q2", "s1"]
+    },
+    {
+      "id": "hide-section/not-matched",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "no", "action": "hide_section", "target_section_id": "s1", "position": 0 }],
+        "answers": { "q1": "yes" }
+      },
+      "expected": []
+    },
+    {
+      "id": "target-is-a-question",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "number" },
+          { "id": "q2", "question_type": "short_text" },
+          { "id": "q3", "question_type": "short_text" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "greater_than", "compare_value": 10, "action": "hide_section", "target_section_id": "q2", "position": 0 }],
+        "answers": { "q1": 11 }
+      },
+      "expected": ["q2"]
+    },
+    {
+      "id": "unknown-target",
+      "input": {
+        "questions": [{ "id": "q1", "question_type": "yes_no" }],
+        "rules": [{ "trigger_question_id": "q1", "operator": "is_empty", "compare_value": null, "action": "show_section", "target_section_id": "gone", "position": 0 }],
+        "answers": {}
+      },
+      "expected": []
+    },
+    {
+      "id": "null-target",
+      "input": {
+        "questions": [{ "id": "q1", "question_type": "yes_no" }],
+        "rules": [{ "trigger_question_id": "q1", "operator": "is_empty", "compare_value": null, "action": "hide_section", "target_section_id": null, "position": 0 }],
+        "answers": {}
+      },
+      "expected": []
+    },
+    {
+      "id": "last-section-runs-to-the-end",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" },
+          { "id": "t1", "question_type": "thank_you_screen" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "hide_section", "target_section_id": "s1", "position": 0 }],
+        "answers": { "q1": "x" }
+      },
+      "expected": ["q2", "s1", "t1"]
+    },
+    {
+      "id": "show-then-hide-in-array-order",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" }
+        ],
+        "rules": [
+          { "trigger_question_id": "q1", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 0 },
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "hide_section", "target_section_id": "s1", "position": 1 }
+        ],
+        "answers": { "q1": "yes" }
+      },
+      "expected": ["q2", "s1"]
+    },
+    {
+      "id": "hide-then-show-in-array-order",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" }
+        ],
+        "rules": [
+          { "trigger_question_id": "q1", "operator": "is_not_empty", "compare_value": null, "action": "hide_section", "target_section_id": "s1", "position": 0 },
+          { "trigger_question_id": "q1", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 1 }
+        ],
+        "answers": { "q1": "yes" }
+      },
+      "expected": []
+    },
+    {
+      "id": "two-show-rules-one-matches",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "checkbox" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" }
+        ],
+        "rules": [
+          { "trigger_question_id": "q1", "operator": "contains", "compare_value": "a", "action": "show_section", "target_section_id": "s1", "position": 0 },
+          { "trigger_question_id": "q1", "operator": "contains", "compare_value": "b", "action": "show_section", "target_section_id": "s1", "position": 1 }
+        ],
+        "answers": { "q1": ["b"] }
+      },
+      "expected": []
+    },
+    {
+      "id": "jump-rules-do-not-hide",
+      "input": {
+        "questions": [
+          { "id": "q1", "question_type": "yes_no" },
+          { "id": "s1", "question_type": "section" },
+          { "id": "q2", "question_type": "short_text" }
+        ],
+        "rules": [{ "trigger_question_id": "q1", "operator": "equals", "compare_value": "no", "action": "go_to_section", "target_section_id": "s1", "position": 0 }],
+        "answers": { "q1": "no" }
+      },
+      "expected": []
+    }
+  ]
+}

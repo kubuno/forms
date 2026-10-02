@@ -7,6 +7,9 @@ use std::net::SocketAddr;
 use uuid::Uuid;
 
 use kubuno_db::params;
+use kubuno_forms_core::{
+    validate_submission, AnswerInput as CoreAnswer, DisplayMode, Issue, IssueCode, QuestionSpec, Rule,
+};
 
 use crate::{
     errors::{FormsError, Result},
@@ -15,10 +18,6 @@ use crate::{
     state::AppState,
 };
 
-/// Content-only types that never collect an answer and are skipped for validation.
-const NON_INPUT_TYPES: &[&str] = &[
-    "image", "video", "section", "statement", "welcome_screen", "thank_you_screen",
-];
 
 /// Returns the public view of a form (title, description, questions, theme, logic).
 /// Sensitive quiz data (correct answers, points, feedback) is never exposed here.
@@ -122,6 +121,7 @@ pub async fn submit(
 ) -> Result<Json<Value>> {
     let form = load_public_form(&state, &token).await?;
     check_accepting(&form)?;
+    validate_respondent(&body)?;
 
     // Anti-spam: cooldown between submissions from the same IP (instance setting).
     let cooldown = state.instance().submission_cooldown_secs;
@@ -150,38 +150,18 @@ pub async fn submit(
     )
     .await?;
 
-    // Validate required questions (skip content-only types). When the form uses
-    // conditional logic, required questions can be legitimately hidden client-side,
-    // so we trust the client's validation rather than risk false rejections.
-    let rule_count: i64 = state.db.fetch_scalar(
-        &format!(
-            "SELECT {} FROM forms.conditional_rules WHERE form_id = $1",
-            state.db.backend().count_bigint("*")
-        ),
+    // Validate the submission with the shared core (kubuno-forms-core): the
+    // conditional logic is evaluated here exactly as the public page evaluates
+    // it, so required questions are enforced on every form, with or without
+    // rules, and answers are checked against their question type. Answers to
+    // questions the respondent did not reach (hidden or jumped over), to
+    // content blocks or to unknown questions are not stored.
+    let rules = state.db.fetch_all_as::<ConditionalRule>(
+        "SELECT * FROM forms.conditional_rules WHERE form_id = $1 ORDER BY position ASC",
         params![form.id],
     )
     .await?;
-
-    if rule_count == 0 {
-        let answered_ids: std::collections::HashSet<Uuid> = body
-            .answers
-            .iter()
-            .filter(|a| !a.value.is_null() && !is_blank(&a.value))
-            .map(|a| a.question_id)
-            .collect();
-
-        for q in &questions {
-            if q.required
-                && !NON_INPUT_TYPES.contains(&q.question_type.as_str())
-                && !answered_ids.contains(&q.id)
-            {
-                return Err(FormsError::Validation(format!(
-                    "Question requise sans réponse : {}",
-                    q.title
-                )));
-            }
-        }
-    }
+    let answers = validated_answers(&state, &form, &questions, &rules, body.answers).await?;
 
     // ── Quiz scoring ────────────────────────────────────────────────────────
     let max_score: i32 = questions.iter().filter(|q| scoring::is_scorable(q)).map(|q| q.points).sum();
@@ -193,7 +173,7 @@ pub async fn submit(
     let mut total_score = 0i32;
     // Per-answer grading, keyed by question id.
     let mut graded: std::collections::HashMap<Uuid, (bool, i32)> = std::collections::HashMap::new();
-    for answer in &body.answers {
+    for answer in &answers {
         if let Some(q) = question_by_id.get(&answer.question_id) {
             if scoring::is_scorable(q) {
                 let g = scoring::grade(q, &answer.value);
@@ -219,7 +199,7 @@ pub async fn submit(
     .await?;
 
     // Insert answers (with grading metadata).
-    for answer in &body.answers {
+    for answer in &answers {
         let (is_correct, points) = match graded.get(&answer.question_id) {
             Some((c, p)) => (Some(*c), *p),
             None => (None, 0),
@@ -315,16 +295,128 @@ pub async fn submit(
     })))
 }
 
-/// A value is "blank" when it is an empty string or empty array.
-fn is_blank(v: &Value) -> bool {
-    match v {
-        Value::String(s) => s.trim().is_empty(),
-        Value::Array(a) => a.is_empty(),
-        Value::Null => true,
-        _ => false,
+/// Longest accepted respondent name, in characters.
+const MAX_RESPONDENT_NAME: usize = 200;
+
+/// Runs the shared core over a submission and returns the answers to store (those of questions the respondent
+/// reached, in submission order). Refuses the submission with the list of issues otherwise.
+async fn validated_answers(
+    state: &AppState,
+    form: &crate::models::form::Form,
+    questions: &[Question],
+    rules: &[ConditionalRule],
+    submitted: Vec<AnswerInput>,
+) -> Result<Vec<AnswerInput>> {
+    let specs: Vec<QuestionSpec> = questions
+        .iter()
+        .map(|q| QuestionSpec {
+            id: q.id.to_string(),
+            question_type: q.question_type.clone(),
+            required: q.required,
+            options: q.options.clone(),
+            title: q.title.clone(),
+        })
+        .collect();
+    let core_rules: Vec<Rule> = rules
+        .iter()
+        .map(|r| Rule {
+            trigger_question_id: r.trigger_question_id.to_string(),
+            operator: r.operator.clone(),
+            compare_value: r.compare_value.clone().unwrap_or(Value::Null),
+            action: r.action.clone(),
+            target_section_id: r.target_section_id.map(|id| id.to_string()),
+            position: i64::from(r.position),
+        })
+        .collect();
+    let inputs: Vec<CoreAnswer> = submitted
+        .iter()
+        .map(|a| CoreAnswer { question_id: a.question_id.to_string(), value: a.value.clone() })
+        .collect();
+
+    let verdict = validate_submission(&specs, &core_rules, DisplayMode::from_settings(&form.settings), &inputs);
+    if !verdict.is_ok() {
+        return Err(submission_error(&specs, &verdict.issues));
     }
+
+    // Keep the accepted answers, once each, in submission order.
+    let mut keep: std::collections::HashSet<String> = verdict.accepted.into_iter().collect();
+    let answers: Vec<AnswerInput> = submitted.into_iter().filter(|a| keep.remove(&a.question_id.to_string())).collect();
+
+    // A file answer must name a file uploaded to this very form.
+    let file_questions: std::collections::HashSet<Uuid> =
+        questions.iter().filter(|q| q.question_type == "file_upload").map(|q| q.id).collect();
+    for a in answers.iter().filter(|a| file_questions.contains(&a.question_id)) {
+        let file_id = a.value.get("fileId").and_then(Value::as_str).and_then(|s| Uuid::parse_str(s).ok());
+        let known = match file_id {
+            Some(id) => {
+                let n: i64 = state.db.fetch_scalar(
+                    &format!(
+                        "SELECT {} FROM forms.uploads WHERE id = $1 AND form_id = $2",
+                        state.db.backend().count_bigint("*")
+                    ),
+                    params![id, form.id],
+                )
+                .await?;
+                n > 0
+            }
+            None => false,
+        };
+        if !known {
+            let issue = Issue { question_id: a.question_id.to_string(), code: IssueCode::InvalidFormat };
+            return Err(submission_error(&specs, &[issue]));
+        }
+    }
+    Ok(answers)
 }
 
+/// The 422 answer of a refused submission: a message naming the first question at fault, and every issue (question
+/// id + stable code) so that a client can mark each field.
+fn submission_error(specs: &[QuestionSpec], issues: &[Issue]) -> FormsError {
+    let title = |id: &str| {
+        specs
+            .iter()
+            .find(|q| q.id == id)
+            .map(|q| plain_title(&q.title))
+            .unwrap_or_default()
+    };
+    let message = match issues.first() {
+        Some(i) if i.code == IssueCode::Required => format!("Question requise sans réponse : {}", title(&i.question_id)),
+        Some(i) => format!("Réponse invalide : {}", title(&i.question_id)),
+        None => "Réponse invalide".to_string(),
+    };
+    FormsError::Submission { message, issues: serde_json::to_value(issues).unwrap_or(Value::Null) }
+}
+
+/// Question titles are rich text: drop the tags for an error message.
+fn plain_title(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").trim().to_string()
+}
+
+/// Checks the respondent fields of a submission (an e-mail, when given, must be a valid address).
+fn validate_respondent(body: &SubmitFormDto) -> Result<()> {
+    if let Some(email) = body.respondent_email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+        if email.chars().count() > 254 || !kubuno_forms_core::validate::is_valid_email(email) {
+            return Err(FormsError::Validation("Adresse e-mail invalide".into()));
+        }
+    }
+    if body.respondent_name.as_deref().is_some_and(|n| n.chars().count() > MAX_RESPONDENT_NAME) {
+        return Err(FormsError::Validation("Nom trop long".into()));
+    }
+    if body.fill_duration_secs.is_some_and(|d| d < 0) {
+        return Err(FormsError::Validation("Durée de remplissage invalide".into()));
+    }
+    Ok(())
+}
 async fn load_public_form(state: &AppState, token: &str) -> Result<crate::models::form::Form> {
     state.db.fetch_optional_as::<crate::models::form::Form>(
         "SELECT * FROM forms.forms WHERE public_token = $1 AND is_trashed = FALSE",

@@ -46,6 +46,9 @@ tokio-util         = { workspace = true }
 kubuno-db          = { workspace = true }
 
 # Specific to forms
+# Shared core (sans-IO): conditional logic and answer validation, also mirrored by
+# the web client through the conformance vectors of crates/kubuno-forms-core/vectors.
+kubuno-forms-core = { path = "crates/kubuno-forms-core" }
 csv = "1.3"
 
 [dev-dependencies]
@@ -54,6 +57,7 @@ tempfile = "3"
 # ─── Workspace mono-crate (deps tierces recopiées du monorepo kubuno/core ;
 #     crates partagées consommées via dépendances git taguées) ───
 [workspace]
+members = ["crates/kubuno-forms-core"]
 
 [workspace.package]
 version      = "0.1.4"

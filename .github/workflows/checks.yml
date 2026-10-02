@@ -26,6 +26,27 @@ jobs:
       - name: clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
+  # Shared core (crates/kubuno-forms-core): unit tests and conformance vectors on
+  # the three desktop OSes, plus the sans-IO guarantee (it must build for the
+  # browser). The frontend job runs the same vectors against src/logic.ts.
+  forms-core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (deny warnings)
+        run: cargo clippy -p kubuno-forms-core --all-targets -- -D warnings
+      - name: tests and conformance vectors
+        run: cargo test -p kubuno-forms-core
+      - name: sans-IO (wasm32-unknown-unknown)
+        run: cargo check -p kubuno-forms-core --target wasm32-unknown-unknown
+
   audit:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,188 @@
+{
+  "$schema": "https://github.com/kubuno/core/blob/main/vectors/conformance-vectors.schema.json",
+  "format": 1,
+  "suite": "forms.submission",
+  "version": "1.0.0",
+  "description": "Verdict on a whole submission. Input: { questions: [{id, question_type, required, options}], rules, settings: { displayMode }, answers: [{question_id, value}] }. Output: { issues: [{question_id, code}] in form order, accepted: ids stored in submission order, ignored: ids dropped, sorted }. Only questions the respondent reached (forms.reached) are checked; every reached required question must be answered; answers to unknown questions, content blocks, unreached questions and blank values are ignored. The 'bypass/*' cases are the required-field bypass fixed on 2026-10-02: the server used to skip the required check on any form that had a rule.",
+  "reference": "forms/crates/kubuno-forms-core validate::validate_submission; frontend/src/logic.ts validateSubmission",
+  "cases": [
+    {
+      "id": "bypass/required-with-unrelated-rule",
+      "input": {
+        "questions": [
+          { "id": "name", "question_type": "short_text", "required": true },
+          { "id": "ok", "question_type": "yes_no", "required": false },
+          { "id": "s1", "question_type": "section" },
+          { "id": "more", "question_type": "long_text", "required": false }
+        ],
+        "rules": [{ "trigger_question_id": "ok", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 0 }],
+        "settings": { "displayMode": "classic" },
+        "answers": [{ "question_id": "ok", "value": "no" }]
+      },
+      "expected": { "issues": [{ "question_id": "name", "code": "required" }], "accepted": ["ok"], "ignored": [] }
+    },
+    {
+      "id": "bypass/empty-submission-flow",
+      "input": {
+        "questions": [
+          { "id": "email", "question_type": "email", "required": true },
+          { "id": "age", "question_type": "number", "required": true }
+        ],
+        "rules": [{ "trigger_question_id": "age", "operator": "less_than", "compare_value": 18, "action": "jump_to_thankyou", "target_section_id": null, "position": 0 }],
+        "settings": {},
+        "answers": []
+      },
+      "expected": {
+        "issues": [{ "question_id": "email", "code": "required" }, { "question_id": "age", "code": "required" }],
+        "accepted": [],
+        "ignored": []
+      }
+    },
+    {
+      "id": "bypass/fixed-valid-submission",
+      "input": {
+        "questions": [
+          { "id": "name", "question_type": "short_text", "required": true },
+          { "id": "ok", "question_type": "yes_no", "required": false },
+          { "id": "s1", "question_type": "section" },
+          { "id": "more", "question_type": "long_text", "required": true }
+        ],
+        "rules": [{ "trigger_question_id": "ok", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 0 }],
+        "settings": { "displayMode": "classic" },
+        "answers": [{ "question_id": "name", "value": "Ada" }, { "question_id": "ok", "value": "no" }]
+      },
+      "expected": { "issues": [], "accepted": ["name", "ok"], "ignored": [] },
+      "note": "'more' is required but its section is hidden: not required"
+    },
+    {
+      "id": "hidden-required-becomes-required-when-shown",
+      "input": {
+        "questions": [
+          { "id": "ok", "question_type": "yes_no", "required": false },
+          { "id": "s1", "question_type": "section" },
+          { "id": "more", "question_type": "long_text", "required": true }
+        ],
+        "rules": [{ "trigger_question_id": "ok", "operator": "equals", "compare_value": "yes", "action": "show_section", "target_section_id": "s1", "position": 0 }],
+        "settings": { "displayMode": "classic" },
+        "answers": [{ "question_id": "ok", "value": "yes" }]
+      },
+      "expected": { "issues": [{ "question_id": "more", "code": "required" }], "accepted": ["ok"], "ignored": [] }
+    },
+    {
+      "id": "flow/jumped-over-required-is-not-required",
+      "input": {
+        "questions": [
+          { "id": "adult", "question_type": "yes_no", "required": true },
+          { "id": "job", "question_type": "short_text", "required": true },
+          { "id": "s2", "question_type": "section" },
+          { "id": "comment", "question_type": "long_text", "required": false }
+        ],
+        "rules": [{ "trigger_question_id": "adult", "operator": "equals", "compare_value": "no", "action": "go_to_section", "target_section_id": "s2", "position": 0 }],
+        "settings": { "displayMode": "one_at_a_time" },
+        "answers": [{ "question_id": "adult", "value": "no" }, { "question_id": "job", "value": "stale answer" }]
+      },
+      "expected": { "issues": [], "accepted": ["adult"], "ignored": ["job"] }
+    },
+    {
+      "id": "classic/jumps-do-not-excuse-required",
+      "input": {
+        "questions": [
+          { "id": "adult", "question_type": "yes_no", "required": true },
+          { "id": "job", "question_type": "short_text", "required": true }
+        ],
+        "rules": [{ "trigger_question_id": "adult", "operator": "equals", "compare_value": "no", "action": "submit_form", "target_section_id": null, "position": 0 }],
+        "settings": { "displayMode": "section" },
+        "answers": [{ "question_id": "adult", "value": "no" }]
+      },
+      "expected": { "issues": [{ "question_id": "job", "code": "required" }], "accepted": ["adult"], "ignored": [] }
+    },
+    {
+      "id": "invalid-values-reported-in-form-order",
+      "input": {
+        "questions": [
+          { "id": "mail", "question_type": "email", "required": false },
+          { "id": "pick", "question_type": "multiple_choice", "required": true, "options": { "options": [{ "id": "o1" }] } },
+          { "id": "scale", "question_type": "linear_scale", "required": false, "options": { "min": 1, "max": 5 } }
+        ],
+        "rules": [],
+        "settings": { "displayMode": "classic" },
+        "answers": [{ "question_id": "scale", "value": 9 }, { "question_id": "pick", "value": "o7" }, { "question_id": "mail", "value": "nope" }]
+      },
+      "expected": {
+        "issues": [
+          { "question_id": "mail", "code": "invalid_format" },
+          { "question_id": "pick", "code": "invalid_choice" },
+          { "question_id": "scale", "code": "out_of_range" }
+        ],
+        "accepted": ["scale", "pick", "mail"],
+        "ignored": []
+      }
+    },
+    {
+      "id": "unknown-content-and-blank-answers-ignored",
+      "input": {
+        "questions": [
+          { "id": "intro", "question_type": "statement" },
+          { "id": "name", "question_type": "short_text", "required": false },
+          { "id": "note", "question_type": "long_text", "required": false }
+        ],
+        "rules": [],
+        "settings": {},
+        "answers": [
+          { "question_id": "intro", "value": "x" },
+          { "question_id": "name", "value": "Ada" },
+          { "question_id": "note", "value": "   " },
+          { "question_id": "elsewhere", "value": "y" }
+        ]
+      },
+      "expected": { "issues": [], "accepted": ["name"], "ignored": ["elsewhere", "intro", "note"] }
+    },
+    {
+      "id": "duplicate-answer",
+      "input": {
+        "questions": [{ "id": "name", "question_type": "short_text", "required": true }],
+        "rules": [],
+        "settings": {},
+        "answers": [{ "question_id": "name", "value": "Ada" }, { "question_id": "name", "value": "Grace" }]
+      },
+      "expected": { "issues": [{ "question_id": "name", "code": "duplicate_answer" }], "accepted": ["name"], "ignored": [] }
+    },
+    {
+      "id": "required-object-answers",
+      "input": {
+        "questions": [
+          { "id": "tel", "question_type": "phone", "required": true },
+          { "id": "file", "question_type": "file_upload", "required": true },
+          { "id": "grid", "question_type": "grid_radio", "required": true, "options": { "rows": [{ "id": "r1" }], "columns": [{ "id": "c1" }] } }
+        ],
+        "rules": [],
+        "settings": { "displayMode": "classic" },
+        "answers": [
+          { "question_id": "tel", "value": { "country": "FR", "number": "" } },
+          { "question_id": "file", "value": { "fileId": "f-1", "name": "a.pdf" } },
+          { "question_id": "grid", "value": {} }
+        ]
+      },
+      "expected": {
+        "issues": [{ "question_id": "tel", "code": "required" }, { "question_id": "grid", "code": "required" }],
+        "accepted": ["file"],
+        "ignored": ["grid", "tel"]
+      }
+    },
+    {
+      "id": "no-rules-all-required",
+      "input": {
+        "questions": [
+          { "id": "w", "question_type": "welcome_screen", "required": true },
+          { "id": "a", "question_type": "short_text", "required": true },
+          { "id": "b", "question_type": "checkbox", "required": true, "options": { "options": [{ "id": "x" }] } }
+        ],
+        "rules": [],
+        "settings": {},
+        "answers": [{ "question_id": "a", "value": "1" }, { "question_id": "b", "value": ["x"] }]
+      },
+      "expected": { "issues": [], "accepted": ["a", "b"], "ignored": [] },
+      "note": "a required welcome screen collects nothing and is never required"
+    }
+  ]
+}
