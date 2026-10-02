@@ -60,6 +60,10 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ### Fixed
 
+- **A clean checkout builds again with `--locked`.** The lock file pinned `kubuno-modauth` and `kubuno-seccomp`
+  to commits their tags no longer point at, so a build without a warm Cargo cache could not fetch them; both are
+  now pinned to the commits of `modauth-v0.1.0` and `seccomp-v0.1.1`.
+
 - **Forms installs on Oracle MySQL 8.** The schema and default-typeface
   migrations set the defaults of JSON columns with `ALTER COLUMN … SET DEFAULT`,
   which MariaDB accepts but MySQL 8 refuses (error 1101), so the module could not
