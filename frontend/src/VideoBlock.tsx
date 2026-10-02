@@ -1,4 +1,4 @@
-import { useModulesStore, ModuleServiceRegistry } from '@kubuno/sdk'
+import { useModulesStore, ModuleServiceRegistry, useAuthStore, useSignedUrl } from '@kubuno/sdk'
 import { readSource, resolvePlayable } from './videoSource'
 
 /** Drive's published `downloadUrl`, or null when Drive is not installed. */
@@ -47,9 +47,19 @@ export default function VideoBlock({ options, title }: {
     )
   }
 
+  return <SignedVideo src={playable.src} />
+}
+
+/** Plain <video>: signed with a stream ticket when a session exists; anonymous
+ *  (public form) pages keep the bare URL. */
+function SignedVideo({ src }: { src: string }) {
+  const hasSession = useAuthStore(s => !!s.accessToken)
+  const signed = useSignedUrl(hasSession ? src : undefined, { purpose: 'stream' })
+  const finalSrc = hasSession ? signed : src
+  if (!finalSrc) return null
   return (
     <video
-      src={playable.src}
+      src={finalSrc}
       controls
       preload="metadata"
       className="w-full rounded-lg bg-black"

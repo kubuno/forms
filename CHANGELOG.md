@@ -50,6 +50,9 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ### Security
 
+- **Response exports, uploaded answer files and videos from Drive or Media no longer rely on the
+  access-token cookie the web client used to keep readable by page scripts**; they use short-lived signed
+  tickets. Public form pages are unchanged. Requires a Kubuno core that issues signed tickets (`POST /api/v1/auth/tickets`) and `@kubuno/sdk` with the signed-URL helpers.
 - **Required questions can no longer be skipped on forms that use conditional logic.** The server could not
   evaluate the logic, so it did not check required questions at all on any form with a rule: a response sent
   straight to the API, without the page, was accepted with required answers missing. The server now evaluates

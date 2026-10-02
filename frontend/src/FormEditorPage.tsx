@@ -1,4 +1,4 @@
-import { useConfirm, pickImageFile } from '@kubuno/sdk'
+import { useConfirm, pickImageFile, downloadSignedUrl } from '@kubuno/sdk'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -1496,7 +1496,7 @@ function ResponsesTab({ formId, form, color, questions }: { formId: string; form
     {
       type: 'action', label: 'Télécharger les réponses (.csv)', icon: <Download size={15} />,
       disabled: total === 0,
-      onClick: () => window.open(formsApi.exportCsvUrl(formId), '_blank', 'noopener'),
+      onClick: () => { void downloadSignedUrl(formsApi.exportCsvUrl(formId)) },
     },
     {
       type: 'action', label: 'Imprimer toutes les réponses', icon: <Printer size={15} />,
@@ -1538,7 +1538,7 @@ function ResponsesTab({ formId, form, color, questions }: { formId: string; form
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Tooltip label="Ouvre les réponses dans un nouveau tableur">
-            <a href={formsApi.exportCsvUrl(formId)} target="_blank" rel="noopener noreferrer"
+            <a href={formsApi.exportCsvUrl(formId)} onClick={e => { e.preventDefault(); void downloadSignedUrl(formsApi.exportCsvUrl(formId)) }}
               className="flex items-center gap-2 px-3 h-9 rounded-lg text-xs hover:bg-surface-1 transition-colors"
               style={{ color }}>
               <Table2 size={16} /> Vers un tableur
@@ -1658,7 +1658,7 @@ function IndividualResponseView({ formId, questions, color }: { formId: string; 
                 </div>
                 <div className="text-sm text-gray-800">
                   {a.value && typeof a.value === 'object' && 'fileId' in (a.value as object)
-                    ? <a href={formsApi.uploadDownloadUrl(formId, (a.value as { fileId: string }).fileId)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">{(a.value as { name: string }).name}</a>
+                    ? <a href={formsApi.uploadDownloadUrl(formId, (a.value as { fileId: string }).fileId)} onClick={e => { e.preventDefault(); void downloadSignedUrl(formsApi.uploadDownloadUrl(formId, (a.value as { fileId: string }).fileId), (a.value as { name: string }).name) }} className="text-blue-600 underline">{(a.value as { name: string }).name}</a>
                     : optLabel(a.question_id, a.value)}
                 </div>
               </div>
