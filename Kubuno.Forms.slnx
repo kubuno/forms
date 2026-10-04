@@ -1,0 +1,19 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/Server/">
+    <Project Path="Kubuno.Forms.Server.rsproj" Type="6c7c4cb5-6e36-4c6f-9c6f-9c6e9b4d4c13">
+      <BuildDependency Project="frontend/Kubuno.Forms.Web.esproj" />
+    </Project>
+  </Folder>
+  <Folder Name="/Libraries/">
+    <Project Path="crates/kubuno-forms-core/Kubuno.Forms.Core.rsproj" Type="6c7c4cb5-6e36-4c6f-9c6f-9c6e9b4d4c13" />
+  </Folder>
+  <Folder Name="/Frontend/">
+    <Project Path="frontend/Kubuno.Forms.Web.esproj">
+      <Platform Project="AnyCPU" />
+      <Build />
+    </Project>
+  </Folder>
+</Solution>
