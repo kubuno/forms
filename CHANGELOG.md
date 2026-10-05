@@ -105,6 +105,7 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ### Fixed
 
+- **Oracle MySQL installs use the migrations written for them.** The module now runs its `mysql-oracle` migration set when the database is Oracle MySQL, instead of the generic MySQL set.
 - **A form that collects the respondent's e-mail could not be submitted** once an address was typed in the
   classic layout: the page sent the address as if it were an answer to a question, which the server refused. It
   is now sent only as the respondent's e-mail, and a malformed address is pointed out before sending.
