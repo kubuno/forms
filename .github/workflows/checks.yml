@@ -20,32 +20,38 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy }
       - uses: Swatinem/rust-cache@v2
+        with: { workspaces: server }
       # clippy --all-targets also compiles the test code (catching test
       # build breakage). Running the backend suites needs a Postgres service
       # per repo — wired as a follow-up.
       - name: clippy (deny warnings)
+        working-directory: server
         run: cargo clippy --all-targets -- -D warnings
 
-  # Shared core (crates/kubuno-forms-core): unit tests and conformance vectors on
-  # the three desktop OSes, plus the sans-IO guarantee (it must build for the
-  # browser). The frontend job runs the same vectors against src/logic.ts.
+  # Shared core (common/core, kubuno-forms-core): unit tests and conformance vectors
+  # (common/vectors) on the three desktop OSes, plus the sans-IO guarantee (it must build
+  # for the browser). The frontend job runs the same vectors against web/src/logic.ts.
   forms-core:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: common/core
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy, targets: wasm32-unknown-unknown }
       - uses: Swatinem/rust-cache@v2
+        with: { workspaces: common/core }
       - name: clippy (deny warnings)
-        run: cargo clippy -p kubuno-forms-core --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: tests and conformance vectors
-        run: cargo test -p kubuno-forms-core
+        run: cargo test --locked
       - name: sans-IO (wasm32-unknown-unknown)
-        run: cargo check -p kubuno-forms-core --target wasm32-unknown-unknown
+        run: cargo check --locked --target wasm32-unknown-unknown
 
   audit:
     runs-on: ubuntu-latest
@@ -55,13 +61,14 @@ jobs:
       - uses: taiki-e/install-action@v2
         with: { tool: cargo-audit }
       - name: cargo audit
+        working-directory: server
         run: cargo audit
 
   frontend:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

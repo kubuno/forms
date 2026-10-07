@@ -4,7 +4,7 @@
   "suite": "forms.hidden",
   "version": "1.0.0",
   "description": "Hidden questions. Input: { questions: [{id, question_type}], rules: [{trigger_question_id, operator, compare_value, action, target_section_id, position}], answers: {id: value} }. Output: the hidden question ids, sorted. show_section targets start hidden and appear when one of their rules matches; hide_section targets are hidden when their rule matches; rules apply in array order; a section target controls itself up to the next section.",
-  "reference": "forms/crates/kubuno-forms-core logic::compute_hidden; frontend/src/logic.ts computeHidden",
+  "reference": "forms/common/core logic::compute_hidden; web/src/logic.ts computeHidden",
   "cases": [
     {
       "id": "no-rules",

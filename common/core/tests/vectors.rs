@@ -1,5 +1,5 @@
-//! Runs the conformance vectors of `vectors/` against the Rust core. The web client runs the same files
-//! (`frontend/src/logic.vectors.test.ts`).
+//! Runs the conformance vectors of `common/vectors` against the Rust core. The web client runs the same files
+//! (`web/test/logic.vectors.test.ts`).
 
 use kubuno_forms_core::{
     check_answer, compute_hidden, evaluate_operator, reached_questions, resolve_jump, validate_submission, AnswerInput,
@@ -32,7 +32,7 @@ fn mode(input: &Value) -> DisplayMode {
 }
 
 fn path(name: &str) -> String {
-    format!("{}/vectors/{name}", env!("CARGO_MANIFEST_DIR"))
+    format!("{}/../vectors/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
 #[test]

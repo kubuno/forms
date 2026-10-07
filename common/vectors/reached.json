@@ -4,7 +4,7 @@
   "suite": "forms.reached",
   "version": "1.0.0",
   "description": "The questions a respondent was shown, given the final answers. Input: { questions, rules, answers, settings: { displayMode } }. Output: their ids in order. Classic shell (any displayMode other than one_at_a_time): every question not hidden, without welcome and thank-you screens. One at a time (absent or null displayMode included): the path from the first step following jump rules; steps exclude hidden questions, sections, welcome and thank-you screens; a goto lands on the first step at or after its target (an unknown target means the first step); the path stops on submit, thank-you, after the last step, or when it would revisit a step.",
-  "reference": "forms/crates/kubuno-forms-core logic::reached_questions; frontend/src/logic.ts reachedQuestions",
+  "reference": "forms/common/core logic::reached_questions; web/src/logic.ts reachedQuestions",
   "cases": [
     {
       "id": "classic/everything-visible",

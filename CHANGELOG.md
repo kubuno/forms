@@ -9,6 +9,14 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 ## [Unreleased]
 
+### Changed
+
+- **The repository is organised by platform.** The server (its sources, migrations, tests and configuration
+  example) moves to `server/` and the web frontend to `web/`, with their history, and `mobile/` is reserved
+  for the mobile apps. The shared forms core moves to `common/core` and its conformance vectors to
+  `common/vectors`. The `.kbpkg` is unchanged (same files, same contents); the build script, the CI workflows,
+  the Makefile and the Visual Studio solution follow.
+
 ## [0.1.9] - 2026-10-05
 
 ### Changed

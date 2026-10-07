@@ -3,8 +3,8 @@
 // reached) and validation of the answers (required questions, answer shapes).
 //
 // The server runs the same rules from the shared Rust core
-// (crates/kubuno-forms-core); both implementations run the conformance vectors
-// of crates/kubuno-forms-core/vectors (frontend/test/logic.vectors.test.ts), so
+// (common/core); both implementations run the conformance vectors
+// of common/vectors (web/test/logic.vectors.test.ts), so
 // the page and the server always agree on what may be submitted.
 import type { ConditionalRule, RuleOperator } from './api'
 

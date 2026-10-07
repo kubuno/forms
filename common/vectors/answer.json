@@ -4,7 +4,7 @@
   "suite": "forms.answer",
   "version": "1.0.0",
   "description": "One value for one question. Input: { question: {id, question_type, required, options}, value (absent = no answer) }. Output: { answered, issue }: answered says whether the value counts as an answer (what a required question checks); issue is null or the code of the first problem of an answered value (invalid_type, invalid_choice, out_of_range, too_long, invalid_format). Unknown question types accept any value.",
-  "reference": "forms/crates/kubuno-forms-core validate::check_answer; frontend/src/logic.ts checkAnswer",
+  "reference": "forms/common/core validate::check_answer; web/src/logic.ts checkAnswer",
   "cases": [
     { "id": "absent", "input": { "question": { "id": "q", "question_type": "short_text" } }, "expected": { "answered": false, "issue": null } },
     { "id": "short-text/ok", "input": { "question": { "id": "q", "question_type": "short_text" }, "value": "Ada" }, "expected": { "answered": true, "issue": null } },

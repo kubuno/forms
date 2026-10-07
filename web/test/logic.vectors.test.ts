@@ -1,5 +1,5 @@
-// Runs the conformance vectors of the shared forms core (crates/kubuno-forms-core/vectors) against the
-// TypeScript logic of the public page. The Rust core runs the same files (crates/kubuno-forms-core/tests).
+// Runs the conformance vectors of the shared forms core (common/vectors) against the
+// TypeScript logic of the public page. The Rust core runs the same files (common/core/tests).
 // Run: npx vitest run (CI: checks.yml, frontend job).
 import { describe, it } from 'vitest'
 import { dirname, join } from 'node:path'
@@ -12,7 +12,7 @@ import {
 import type { RuleOperator } from '../src/api'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const vectors = (name: string) => join(here, '../../crates/kubuno-forms-core/vectors', name)
+const vectors = (name: string) => join(here, '../../common/vectors', name)
 
 // The runner is vendored (no npm dependency): refuse a copy that drifted from its pinned version.
 describe('vendored @kubuno/vectors', () => {

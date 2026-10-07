@@ -3,11 +3,11 @@
     "Name": "Forms (Kubuno Core + browser)",
     "Projects": [
       {
-        "Path": "Kubuno.Forms.Server.rsproj",
+        "Path": "server\\Kubuno.Forms.Server.rsproj",
         "Action": "Start"
       },
       {
-        "Path": "frontend\\Kubuno.Forms.Web.esproj",
+        "Path": "web\\Kubuno.Forms.Web.esproj",
         "Action": "Start"
       }
     ]

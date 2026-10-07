@@ -4,7 +4,7 @@
   "suite": "forms.submission",
   "version": "1.0.0",
   "description": "Verdict on a whole submission. Input: { questions: [{id, question_type, required, options}], rules, settings: { displayMode }, answers: [{question_id, value}] }. Output: { issues: [{question_id, code}] in form order, accepted: ids stored in submission order, ignored: ids dropped, sorted }. Only questions the respondent reached (forms.reached) are checked; every reached required question must be answered; answers to unknown questions, content blocks, unreached questions and blank values are ignored. The 'bypass/*' cases are the required-field bypass fixed on 2026-10-02: the server used to skip the required check on any form that had a rule.",
-  "reference": "forms/crates/kubuno-forms-core validate::validate_submission; frontend/src/logic.ts validateSubmission",
+  "reference": "forms/common/core validate::validate_submission; web/src/logic.ts validateSubmission",
   "cases": [
     {
       "id": "bypass/required-with-unrelated-rule",

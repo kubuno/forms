@@ -4,7 +4,7 @@
   "suite": "forms.operators",
   "version": "1.0.0",
   "description": "A rule operator applied to an answer and the rule's compare value. Input: { operator, answer (absent = not answered), compare }. Output: true when the condition holds. Semantics are JavaScript's (String(), trim(), Number(), toLowerCase()).",
-  "reference": "forms/crates/kubuno-forms-core logic::evaluate_operator; frontend/src/logic.ts evalOperator",
+  "reference": "forms/common/core logic::evaluate_operator; web/src/logic.ts evalOperator",
   "cases": [
     { "id": "is-empty/absent", "input": { "operator": "is_empty", "compare": null }, "expected": true },
     { "id": "is-empty/null", "input": { "operator": "is_empty", "answer": null, "compare": null }, "expected": true },

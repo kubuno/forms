@@ -4,7 +4,7 @@
   "suite": "forms.jump",
   "version": "1.0.0",
   "description": "Where the one-at-a-time flow goes after a question. Input: { question_id, rules, answers }. Output: null (advance to the next step), { kind: 'goto', target_id }, { kind: 'thankyou' } or { kind: 'submit' }. Only rules triggered by question_id with a jump action count, by ascending position; the first matching one wins; a goto without target is skipped.",
-  "reference": "forms/crates/kubuno-forms-core logic::resolve_jump; frontend/src/logic.ts resolveJump",
+  "reference": "forms/common/core logic::resolve_jump; web/src/logic.ts resolveJump",
   "cases": [
     { "id": "no-rule", "input": { "question_id": "q1", "rules": [], "answers": {} }, "expected": null },
     {
