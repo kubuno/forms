@@ -10,8 +10,8 @@
 //! account on this instance at all, and they cannot delete what they submitted.
 //! The form's owner can: deleting the form cascades to its questions, responses,
 //! answers and uploads. The platform's criterion is **an account is billed for
-//! what it can free itself**, so every byte here - including a stranger's upload
-//! - is charged to `forms.forms.owner_id`.
+//! what it can free itself**, so every byte here - including a stranger's upload -
+//! is charged to `forms.forms.owner_id`.
 //!
 //! The practical consequence is intended: publishing a form that collects files
 //! spends the publisher's quota, which is the only arrangement in which the

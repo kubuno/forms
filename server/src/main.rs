@@ -225,8 +225,8 @@ async fn main() -> Result<()> {
         .ok();
 
     // Storage usage reporter: declares to the core what forms holds per account,
-    // always charged to the form's owner. Started before registration on purpose
-    // - its first attempt routinely fails while the core is still coming up, and
+    // always charged to the form's owner. Started before registration on purpose -
+    // its first attempt routinely fails while the core is still coming up, and
     // its backoff is what recovers from that without waiting a whole sync period.
     {
         let usage_state = state.clone();
