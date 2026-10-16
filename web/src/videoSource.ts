@@ -1,8 +1,8 @@
 // A `video` question carries its source in the question's `options` JSON. Three
 // origins are supported, and a form can mix them freely:
-//   • drive  — a file picked from the Drive module (id + name)
-//   • media  — an item from the Media module, when that module is installed
-//   • url    — an external link (YouTube, Dailymotion, Vimeo, PeerTube, or a
+//   • drive  - a file picked from the Drive module (id + name)
+//   • media  - an item from the Media module, when that module is installed
+//   • url    - an external link (YouTube, Dailymotion, Vimeo, PeerTube, or a
 //              direct .mp4/.webm file)
 //
 // Nothing here imports another module: Drive is reached through the core's
@@ -12,7 +12,7 @@ export type VideoKind = 'drive' | 'media' | 'url'
 
 export interface VideoSource {
   kind:  VideoKind
-  /** Drive file id / Media item id — unused for `url`. */
+  /** Drive file id / Media item id - unused for `url`. */
   id?:   string
   /** External link, for `url`. */
   url?:  string

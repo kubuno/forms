@@ -1,4 +1,4 @@
-# Kubuno Forms — mobile apps
+# Kubuno Forms - mobile apps
 
 Reserved for the mobile clients of the Forms module, organised like the other platforms of this repository:
 

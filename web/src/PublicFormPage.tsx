@@ -196,7 +196,7 @@ function OneAtATimeShell({ form, token }: { form: PublicForm; token: string }) {
   const current = currentIdx >= 0 ? steps[currentIdx] : undefined
 
   /**
-   * Section the current step sits in — the last `section` block before it in
+   * Section the current step sits in - the last `section` block before it in
    * the form's own order. Steps skip section blocks, so without this the
    * respondent would lose the heading that frames the questions.
    */
@@ -408,7 +408,7 @@ function ClassicShell({ form, token, paged = false }: { form: PublicForm; token:
   /**
    * "Par section": the visible blocks are cut at each `section` header, one
    * page per section. Everything before the first header is page one, so a
-   * form without sections still works — it simply has a single page.
+   * form without sections still works - it simply has a single page.
    */
   const pages = useMemo(() => {
     if (!paged) return [visible]
@@ -611,7 +611,7 @@ function Centered({ children }: { children: ReactNode }) {
   return <div className="min-h-screen flex items-center justify-center">{children}</div>
 }
 function PoweredBy() {
-  return <p className="text-center text-xs text-gray-400 pt-6">Propulsé par Kubuno Forms — vos données restent sur votre serveur</p>
+  return <p className="text-center text-xs text-gray-400 pt-6">Propulsé par Kubuno Forms - vos données restent sur votre serveur</p>
 }
 function StatusScreen({ message }: { message: string }) {
   return (

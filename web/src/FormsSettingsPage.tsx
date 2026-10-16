@@ -177,7 +177,7 @@ function PreferencesTab() {
 
 // Instance-wide settings (max questions, file size, retention, cooldown,
 // notifications…) are now declared in module.toml `[[settings]]` and edited from
-// the core admin console — no longer a tab inside the module.
+// the core admin console - no longer a tab inside the module.
 
 function AboutTab() {
   const { t } = useTranslation('forms')
@@ -201,7 +201,7 @@ function AboutTab() {
           <div className="px-5 py-4">
             <p className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2">{t('forms_about_description', { defaultValue: 'Description' })}</p>
             <p className="text-sm text-text-secondary leading-relaxed">
-              {t('forms_about_text', { defaultValue: 'Créateur de formulaires en ligne — questions de tous types (texte, choix multiples, cases à cocher, liste déroulante, échelle, étoiles, date, heure, fichier), logique conditionnelle, analytics par question, export CSV, webhooks, lien public partageable sans connexion.' })}
+              {t('forms_about_text', { defaultValue: 'Créateur de formulaires en ligne - questions de tous types (texte, choix multiples, cases à cocher, liste déroulante, échelle, étoiles, date, heure, fichier), logique conditionnelle, analytics par question, export CSV, webhooks, lien public partageable sans connexion.' })}
             </p>
           </div>
 

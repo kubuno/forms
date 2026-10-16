@@ -45,7 +45,7 @@ export default function LogicEditor({ formId, questions, color }: { formId: stri
   const answerable = questions.filter(q => !['section', 'statement', 'welcome_screen', 'thank_you_screen', 'image', 'video'].includes(q.question_type))
   const qLabel = (id: string) => {
     const q = questions.find(x => x.id === id)
-    return q ? (q.title || 'Sans titre') : '—'
+    return q ? (q.title || 'Sans titre') : '-'
   }
 
   const addRule = () => {

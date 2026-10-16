@@ -1,5 +1,5 @@
 import { RouteRegistry, WaffleAppRegistry, ModuleSettingsRegistry, useToolbarStore, useSearchStore, SDK_VERSION, FaviconRegistry } from '@kubuno/sdk'
-/** Bundle MODULE forms — chargé à l'exécution (cf. vite.module.config). */
+/** Bundle MODULE forms - chargé à l'exécution (cf. vite.module.config). */
 import { lazy } from 'react'
 import FormsLogo from './FormsLogo'
 import './index.css'

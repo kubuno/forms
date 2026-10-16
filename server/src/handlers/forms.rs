@@ -214,7 +214,7 @@ pub async fn duplicate(
     Ok(Json(json!({ "form": new_form })))
 }
 
-/// `POST /forms/forms/:id/rotate-token` — issues a fresh public link.
+/// `POST /forms/forms/:id/rotate-token` - issues a fresh public link.
 ///
 /// Revoking a link is the only way to cut off people who already have it: the
 /// old token stops resolving the moment a new one is stored. Answers already
@@ -227,7 +227,7 @@ pub async fn rotate_token(
     load_owned_form(&state, id, user.id).await?;
     // The new token is generated in Rust (two dashless UUIDs = 64 hex chars) and
     // bound, so no engine-specific `gen_random_uuid()` and no RETURNING is
-    // needed — the caller already holds the value it just stored.
+    // needed - the caller already holds the value it just stored.
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     state.db.execute(
         "UPDATE forms.forms SET public_token = $1 WHERE id = $2",

@@ -1,5 +1,5 @@
 //! Runs forms' own migrations and its own data layer against a real server of
-//! **each** engine, from a single compiled binary — the proof that the engine
+//! **each** engine, from a single compiled binary - the proof that the engine
 //! is a run-time choice, not a build-time one.
 //!
 //! * SQLite always runs (a temp file, no server).

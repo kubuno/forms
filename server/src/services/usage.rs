@@ -10,8 +10,8 @@
 //! account on this instance at all, and they cannot delete what they submitted.
 //! The form's owner can: deleting the form cascades to its questions, responses,
 //! answers and uploads. The platform's criterion is **an account is billed for
-//! what it can free itself**, so every byte here — including a stranger's upload
-//! — is charged to `forms.forms.owner_id`.
+//! what it can free itself**, so every byte here - including a stranger's upload
+//! - is charged to `forms.forms.owner_id`.
 //!
 //! The practical consequence is intended: publishing a form that collects files
 //! spends the publisher's quota, which is the only arrangement in which the
@@ -20,7 +20,7 @@
 //! ## The attribution rule
 //!
 //! Whoever physically holds the byte declares it, and only them. Forms holds all
-//! of its own — rows in its schema, uploads on its `StorageBackend` — and writes
+//! of its own - rows in its schema, uploads on its `StorageBackend` - and writes
 //! nothing through drive, so it never emits `delegated`.
 //!
 //! ## How bytes are measured
@@ -29,7 +29,7 @@
 //! `octet_length()`: answers are JSONB and questions carry option lists,
 //! PostgreSQL stores them TOASTed and compressed, and the logical length would
 //! over-state what the instance holds by the whole compression ratio. Uploads are
-//! the exception — they sit on the storage backend, and `uploads.size_bytes` is
+//! the exception - they sit on the storage backend, and `uploads.size_bytes` is
 //! the figure the upload path recorded.
 //!
 //! ## State, never deltas
@@ -82,7 +82,7 @@ const CAT_CONTENT: &str = "content";
 ///
 /// PostgreSQL's `pg_column_size` reports the on-disk (TOASTed, compressed) size,
 /// which is what the column really costs there. MySQL and SQLite have no such
-/// function, so the logical byte length (`LENGTH`) stands in — an honest figure
+/// function, so the logical byte length (`LENGTH`) stands in - an honest figure
 /// on engines without TOAST, though it counts characters rather than storage
 /// bytes on SQLite.
 fn col_bytes(backend: Backend, col: &str) -> String {
@@ -120,7 +120,7 @@ fn sum_bigint(backend: Backend, inner: &str) -> String {
 ///
 /// Each statement returns exactly `(owner uuid, bytes bigint, objects bigint)`
 /// and reads forms' own schema only. Every one reaches the owner through
-/// `forms.forms` — the guard tests below keep a future query from grouping on
+/// `forms.forms` - the guard tests below keep a future query from grouping on
 /// `respondent_id` and billing a stranger, or worse, nobody.
 fn owned_queries(backend: Backend) -> Vec<(&'static str, String)> {
     let count = backend.count_bigint("*");
@@ -221,7 +221,7 @@ struct Entry {
 /// A failing query is logged and skipped rather than aborting the whole
 /// declaration: one broken table should cost its own line, not the entire
 /// breakdown. The declaration is still marked `full`, which means a category that
-/// failed here is *retired* by the core until the next sync repairs it — the
+/// failed here is *retired* by the core until the next sync repairs it - the
 /// honest outcome, since publishing a stale figure as current state would be
 /// worse than publishing none.
 async fn collect(db: &DbPool) -> Vec<Entry> {
@@ -242,7 +242,7 @@ async fn collect(db: &DbPool) -> Vec<Entry> {
             Err(e) => tracing::error!(
                 error = %e,
                 catégorie = category,
-                "Recomptage de consommation échoué pour une requête — catégorie incomplète"
+                "Recomptage de consommation échoué pour une requête - catégorie incomplète"
             ),
         }
     }
@@ -257,7 +257,7 @@ async fn collect(db: &DbPool) -> Vec<Entry> {
         })
         .collect();
 
-    // Stable order so consecutive declarations chunk identically — a moving
+    // Stable order so consecutive declarations chunk identically - a moving
     // chunk boundary would make partial declarations retire different accounts
     // each time.
     entries.sort_by(|a, b| (a.user_id, a.category).cmp(&(b.user_id, b.category)));
@@ -314,7 +314,7 @@ async fn send(
     }
 
     // The status alone does not say which of several validations refused the
-    // declaration, and this runs unattended — a log line reading "HTTP 422" costs
+    // declaration, and this runs unattended - a log line reading "HTTP 422" costs
     // an afternoon the next time the contract shifts.
     let status = resp.status();
     let detail = resp.text().await.unwrap_or_default();
@@ -434,7 +434,7 @@ mod tests {
             assert!(
                 !lowered.contains("group by r.respondent_id")
                     && !lowered.contains("group by respondent_id"),
-                "une requête facture le répondant — il peut être anonyme et ne peut rien libérer : {sql}"
+                "une requête facture le répondant - il peut être anonyme et ne peut rien libérer : {sql}"
             );
             assert!(
                 lowered.contains("group by owner_id") || lowered.contains("group by f.owner_id"),
@@ -452,7 +452,7 @@ mod tests {
             let reads_forms_directly = lowered.contains("from forms.forms");
             assert!(
                 reads_forms_directly || lowered.contains("join forms.forms"),
-                "requête sans jointure vers forms.forms — le propriétaire ne serait pas résolu : {sql}"
+                "requête sans jointure vers forms.forms - le propriétaire ne serait pas résolu : {sql}"
             );
         }
     }

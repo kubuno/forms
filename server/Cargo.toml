@@ -2,7 +2,7 @@
 name        = "kubuno-forms"
 version     = "0.1.9"
 edition     = "2021"
-description = "Kubuno Forms — formulaires et sondages"
+description = "Kubuno Forms - formulaires et sondages"
 license     = "AGPL-3.0"
 repository  = "https://github.com/kubuno/forms"
 

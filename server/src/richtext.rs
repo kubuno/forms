@@ -3,7 +3,7 @@
 //! These fields became rich text (bold/italic/underline/link/lists) edited in the
 //! browser. A form is meant to be SHARED publicly, so unfiltered HTML would let
 //! its owner run script in every respondent's page. Everything is therefore
-//! cleaned on the way in — storing safe data means every renderer is safe, not
+//! cleaned on the way in - storing safe data means every renderer is safe, not
 //! just the ones that remember to escape.
 
 use std::collections::{HashMap, HashSet};

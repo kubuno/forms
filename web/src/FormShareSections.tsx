@@ -40,7 +40,7 @@ export function RespondentAccess({ target }: { target: { id: string } }) {
   /**
    * "Supprimer le lien" is not a state but an ACTION: it issues a new public
    * token, which is the only way to cut off whoever already has the old one.
-   * The dropdown therefore snaps back to "link" — that is still the situation.
+   * The dropdown therefore snaps back to "link" - that is still the situation.
    */
   const revoke = async () => {
     const ok = await confirm({

@@ -9,12 +9,12 @@
 //!
 //! Two PostgreSQL habits are handled here rather than in the SQL text:
 //!
-//! * **`RETURNING *`** — MySQL has none. Every insert generates its primary key
+//! * **`RETURNING *`** - MySQL has none. Every insert generates its primary key
 //!   in Rust ([`kubuno_db::new_id`]), binds it, and re-selects the row by id.
 //!   The row is knowable because the process, not the database, invented the
 //!   key. The PostgreSQL migration keeps its `DEFAULT uuid_generate_v4()`, which
 //!   is simply overridden.
-//! * **`ON CONFLICT DO NOTHING`** and **`INET`** — spelled through
+//! * **`ON CONFLICT DO NOTHING`** and **`INET`** - spelled through
 //!   [`kubuno_db::dialect`].
 
 use serde_json::Value;

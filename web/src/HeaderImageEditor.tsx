@@ -10,11 +10,11 @@ import { Button, Separator, RangeSlider } from '@ui'
  *
  * Geometry (rotate / flip) REBUILDS the bitmap instead of applying a CSS
  * transform, so the picture can never spill out of its stage and the crop frame
- * always shares the screen's axes — dragging a handle stays predictable.
+ * always shares the screen's axes - dragging a handle stays predictable.
  * Tone settings stay live (same filter string previews in CSS and bakes in
  * canvas) so they remain adjustable until the user saves.
  *
- * Everything is BAKED into a new image on save rather than stored as settings —
+ * Everything is BAKED into a new image on save rather than stored as settings -
  * the banner is served to anonymous respondents as a plain URL, so what they
  * fetch must already be edited.
  */

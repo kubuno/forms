@@ -23,7 +23,7 @@ pub enum FormsError {
     #[error("Conflit: {0}")]
     Conflict(String),
 
-    #[error("Trop de requêtes — réessayez dans quelques instants")]
+    #[error("Trop de requêtes - réessayez dans quelques instants")]
     TooManyRequests,
 
     #[error("Formulaire fermé ou expiré")]

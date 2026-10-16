@@ -3,7 +3,7 @@ import { Bold, Italic, Underline, Link2, ListOrdered, List, RemoveFormatting } f
 
 /**
  * Borderless rich-text field with a CONTEXTUAL toolbar: the bar only appears
- * while the field is being edited, under it — that is what the design calls for,
+ * while the field is being edited, under it - that is what the design calls for,
  * and it is why `@ui`'s RichText (a boxed editor with a permanent toolbar) does
  * not fit here.
  *
@@ -16,7 +16,7 @@ export interface InlineRichFieldProps {
   placeholder?: string
   /** Titles are big and drop the list buttons; descriptions are small and keep them. */
   variant?:    'title' | 'subtitle' | 'description'
-  /** Theme colour — used for the focus underline. */
+  /** Theme colour - used for the focus underline. */
   color?:      string
   className?:  string
 }

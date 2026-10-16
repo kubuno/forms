@@ -24,7 +24,7 @@ use crate::{
 
 // NOTE ON `core.users`. The recipient search and the collaborator listing read
 // the core's `core.users` table directly. This resolves only when the module
-// shares one database with the core — PostgreSQL (all schemas in one database)
+// shares one database with the core - PostgreSQL (all schemas in one database)
 // and MySQL (the `core` database on the same server). On SQLite, where each
 // module owns a separate attached file, `core.users` is not present and these
 // two endpoints fail at run time. This is the same class of cross-component
@@ -79,7 +79,7 @@ async fn is_owner(state: &AppState, form_id: Uuid, user_id: Uuid) -> Result<bool
     Ok(found)
 }
 
-/// `GET /forms/recipients?q=` — users this form can be shared with.
+/// `GET /forms/recipients?q=` - users this form can be shared with.
 pub async fn search_recipients(
     State(state): State<AppState>,
     Extension(user): Extension<FormsUser>,
@@ -116,7 +116,7 @@ pub async fn search_recipients(
     Ok(Json(json!({ "recipients": hits })))
 }
 
-/// `GET /forms/forms/:id/collaborators` — owner and collaborators.
+/// `GET /forms/forms/:id/collaborators` - owner and collaborators.
 pub async fn list(
     State(state): State<AppState>,
     Extension(user): Extension<FormsUser>,
@@ -168,7 +168,7 @@ pub async fn list(
     Ok(Json(json!({ "owner": owner, "collaborators": collaborators })))
 }
 
-/// `POST /forms/forms/:id/collaborators` — add or update a collaborator (owner only).
+/// `POST /forms/forms/:id/collaborators` - add or update a collaborator (owner only).
 pub async fn add(
     State(state): State<AppState>,
     Extension(user): Extension<FormsUser>,
@@ -210,7 +210,7 @@ pub async fn add(
     Ok(Json(json!({ "ok": true, "user_id": dto.user_id, "permission": permission })))
 }
 
-/// `PATCH /forms/forms/:id/collaborators/:user_id` — change a permission (owner only).
+/// `PATCH /forms/forms/:id/collaborators/:user_id` - change a permission (owner only).
 pub async fn update(
     State(state): State<AppState>,
     Extension(user): Extension<FormsUser>,
@@ -243,7 +243,7 @@ pub async fn update(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// `DELETE /forms/forms/:id/collaborators/:user_id` — remove a collaborator.
+/// `DELETE /forms/forms/:id/collaborators/:user_id` - remove a collaborator.
 /// Allowed to the owner, or to the collaborator themselves (leaving the share).
 pub async fn remove(
     State(state): State<AppState>,

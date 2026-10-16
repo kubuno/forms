@@ -35,7 +35,7 @@ number at release time, and CI publishes that section as the GitHub Release note
   of the core repository's `kubuno-vectors`) in CI on Linux, Windows and macOS, so they cannot drift apart.
 
 - **Choice of database engine.** Forms now runs on **PostgreSQL**,
-  **MySQL/MariaDB** or **SQLite** — the administrator picks one in
+  **MySQL/MariaDB** or **SQLite** - the administrator picks one in
   `[database] engine` (`postgres` by default) and the same binary connects to
   whichever is named; all three drivers are built in. SQLite needs no server
   (`[database] path` holds `forms.sqlite`), which makes a single-box or offline
@@ -52,7 +52,7 @@ number at release time, and CI publishes that section as the GitHub Release note
   the default-typeface migration), `ILIKE`, aggregates and `INET` are each
   translated to the local dialect, and the response-count and `updated_at`
   triggers exist on all three engines. No visible change on an existing
-  PostgreSQL instance — the migrations it already applied are untouched.
+  PostgreSQL instance - the migrations it already applied are untouched.
 - Internal note corrected: when this module starts announcing its events, it
   will do so over the core's internal interface rather than a
   PostgreSQL-specific notification. No behaviour changes.
@@ -70,7 +70,7 @@ number at release time, and CI publishes that section as the GitHub Release note
 - **The public link now enforces every respondent rule of the form on the server.** Until now these rules were
   applied by the page only, so a response posted straight to the API ignored them:
   - an **unpublished** form takes no response and shows nothing to strangers (its owner can still preview it);
-    publish the form to open it — a form whose link was shared without ever being published stops taking answers;
+    publish the form to open it - a form whose link was shared without ever being published stops taking answers;
   - **"Require sign-in"** is enforced: an anonymous visitor can neither open, answer nor upload a file to such a
     form (HTTP 401, `SIGN_IN_REQUIRED`), and the response records the account that answered;
   - **"Collect e-mail addresses"** makes the e-mail required and checked; on a sign-in form the account's own
@@ -107,10 +107,10 @@ number at release time, and CI publishes that section as the GitHub Release note
   pulled in an RSA implementation vulnerable to a timing side-channel
   (RUSTSEC-2023-0071) for which no fix will ever exist. The new line does not
   depend on it at all, and it refuses any SQL string built at run time unless it
-  has been audited — the queries here were checked and marked.
+  has been audited - the queries here were checked and marked.
 - **Input validation library updated.** The version in use carried
   RUSTSEC-2024-0421 through its domain-name parser, which accepted Punycode
-  labels that decode to plain ASCII — a mismatch an attacker can use to make two
+  labels that decode to plain ASCII - a mismatch an attacker can use to make two
   different names look like one.
 
 ### Fixed
@@ -168,24 +168,24 @@ number at release time, and CI publishes that section as the GitHub Release note
 - **This module now installs as a Kubuno package (`.kbpkg`) only.** Its system
   packages (Debian/RPM and the Windows and macOS installers) are no longer
   built: the module is distributed as one `.kbpkg` per platform (Linux, Windows,
-  macOS) that the Kubuno server installs itself — from the admin console, or
+  macOS) that the Kubuno server installs itself - from the admin console, or
   offline with `kubuno modules:install <file>.kbpkg`.
 - **Dates are formatted by the platform now, not by a library.** `date-fns` is
   gone from this module: the shared SDK exposes helpers built on `Intl`, which is
   localised for every language we ship and needs no locale bundle loaded. Call
-  sites say what a date is FOR — `formatDate(d, 'date')` — and the platform
+  sites say what a date is FOR - `formatDate(d, 'date')` - and the platform
   decides how to write it, so a reader in Japanese no longer gets a French
   layout. Machine formats (keys, `<input type="date">` values) go through
   `toISODate` and friends, built from local calendar fields so the day cannot
   shift near midnight.
 - **The README now opens with the module's logo.** The public README on
   GitHub now shows the module's designer logo (the same PNG shown as the
-  browser tab icon and in the applications menu) at the top of the page — the
+  browser tab icon and in the applications menu) at the top of the page - the
   repository landing now matches the icon a signed-in user sees inside the
   platform. The image ships in-repo, under `.github/logo.png`, so it renders
   even when the repo is browsed offline.
 
-- **New Forms logo** — a green hexagon with a light form/checklist, used as
+- **New Forms logo** - a green hexagon with a light form/checklist, used as
   the browser-tab icon and in the applications menu. It replaces the generic
   clipboard icon and is raster (PNG) designer artwork; the Forms tab now has
   an icon of its own.
@@ -204,11 +204,11 @@ number at release time, and CI publishes that section as the GitHub Release note
   release; the lockfile now takes the version that replaced it.
 - **The package could not be built where `zip` is absent.** The Windows job of
   the continuous integration has no `zip`, so the Windows package was simply lost
-  the first time it was attempted — a script failure, not a build failure. The
+  the first time it was attempted - a script failure, not a build failure. The
   builder now falls back to 7-Zip, then to PowerShell.
 ### Added
 
-- **This module now ships a `.kbpkg`** — the single package format a Kubuno
+- **This module now ships a `.kbpkg`** - the single package format a Kubuno
   server installs by itself, the same file on Linux, Windows and macOS. It
   carries the same binary, interface and manifest as the system packages,
   arranged the way the server expects to find a module on disk, plus a
@@ -222,7 +222,7 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 - **A built package could be thrown away instead of published.** The job that
   attaches a package to the release waited ten minutes for another workflow to
-  create that release, then gave up with "release never appeared — build.yml
+  create that release, then gave up with "release never appeared - build.yml
   likely failed". The diagnosis was wrong: on a repository whose `.deb` takes
   longer than ten minutes to build, the release simply did not exist yet, and a
   package that had built perfectly was discarded. Four modules reached v0.1.6
@@ -252,7 +252,7 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 - **Field group answers.** A new "Groupe de champs" question stacks several
   labelled text sub-fields under one shared icon, with a Plus/Moins chevron that
-  reveals advanced sub-fields — e.g. a full "Name" block (prefix/first/middle/
+  reveals advanced sub-fields - e.g. a full "Name" block (prefix/first/middle/
   last/suffix/phonetic…) or an "Organisation" block. Text fields and the group
   now come from the shared `@ui` primitives (`OutlinedField`, `FieldGroup`).
 
@@ -271,7 +271,7 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 - **Pill-shaped buttons are gone from the interface.** Filter chips, view
   segments, tab selectors and action buttons that were drawn as pills now use the
-  same 4 px corner radius as every other button — the shape set them apart for no
+  same 4 px corner radius as every other button - the shape set them apart for no
   reason other than habit. Round buttons that hold a lone icon, avatars, status
   dots and non-clickable badges keep their shape: a circle around a single glyph
   is not a pill.
@@ -280,12 +280,12 @@ number at release time, and CI publishes that section as the GitHub Release note
 
 - **Outfit replaces Google Sans** in the theme panel's font list and in the
   default typography of new forms. A migration updates the column default and
-  the themes already stored — including the per-block header/question/body
-  styles — so existing forms follow instead of falling back to Arial.
+  the themes already stored - including the per-block header/question/body
+  styles - so existing forms follow instead of falling back to Arial.
 
 - Theme tokens: two colours for navigation labels (`--color-text-nav`,
   `--color-text-nav-active`). Every module carries the same token sheet, so the
-  values must match across them — whichever bundle loads last would otherwise
+  values must match across them - whichever bundle loads last would otherwise
   win. No visible change inside this module.
 
 ### Changed

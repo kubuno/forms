@@ -317,7 +317,7 @@ export const formsApi = {
 
 // ── Sharing (user-to-user) ───────────────────────────────────────────────────
 
-/** A form is either readable or editable — there is nothing to comment on. */
+/** A form is either readable or editable - there is nothing to comment on. */
 export type CollabPermission = 'view' | 'edit'
 
 export interface Recipient {

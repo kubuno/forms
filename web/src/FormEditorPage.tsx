@@ -64,12 +64,12 @@ export default function FormEditorPage() {
   const [showThemePicker, setShowThemePicker]   = useState(false)
   const dragId = useRef<string | null>(null)
   // A finished drag is followed by a stray `click` on the common ancestor of
-  // press and release — which the click-away handler would read as "clicked
+  // press and release - which the click-away handler would read as "clicked
   // outside" and drop the selection. Timestamped so a drag that ends without a
   // click never swallows a later one.
   const draggedAt = useRef(0)
   // Only feedback during a block drag: the silhouette of the slot it would
-  // land in — the block's real outline, band and S-curve included.
+  // land in - the block's real outline, band and S-curve included.
   const [ghost, setGhost] = useState<GhostShape | null>(null)
 
   const refresh = useCallback(() => { qc.invalidateQueries({ queryKey: ['form', id] }) }, [qc, id])
@@ -270,7 +270,7 @@ export default function FormEditorPage() {
   }, [applyOrder])
 
 
-  // Section that owns the current selection — the rail is clamped to its bounds.
+  // Section that owns the current selection - the rail is clamped to its bounds.
   const focusedSection = useMemo(() => {
     const groups = groupIntoSections(data?.questions ?? [])
     if (!activeQuestionId || activeQuestionId === FORM_CARD_ID) return 0
@@ -312,7 +312,7 @@ export default function FormEditorPage() {
         .map(el => ({ id: el.dataset.qid as string, el, r: el.getBoundingClientRect() }))
 
     // Measured once, when the drag starts: the silhouette is computed from the
-    // block itself — height, band width, head height, corner radius — so it
+    // block itself - height, band width, head height, corner radius - so it
     // fits whatever this block is (a section's band overhangs its tab and
     // carries one tool fewer). It cannot change while the block is in flight.
     const self  = (e.currentTarget as HTMLElement).closest('[data-qid]') as HTMLElement | null
@@ -329,7 +329,7 @@ export default function FormEditorPage() {
     /**
      * Follows the pointer freely, and only SNAPS when the silhouette comes
      * within `SNAP` of a slot it could actually take. Away from any slot it
-     * floats, and releasing there drops the move — the block goes nowhere it
+     * floats, and releasing there drops the move - the block goes nowhere it
      * was not shown going.
      */
     const SNAP = 28
@@ -697,7 +697,7 @@ export default function FormEditorPage() {
                 </div>
                   ))}
                   </div>
-                  {/* Navigation after this section — the last one ends the form. */}
+                  {/* Navigation after this section - the last one ends the form. */}
                   {all.length > 1 && gi < all.length - 1 && (
                     <div className="mt-3"><SectionFooter index={gi + 1} total={all.length} /></div>
                   )}
@@ -768,7 +768,7 @@ function groupIntoSections(questions: Question[]): SectionGroup[] {
 
 /**
  * ⋮ menu of a section header. "Fusionner avec l'élément supérieur" only exists
- * from section 2 on — section 1 has nothing above it to merge into.
+ * from section 2 on - section 1 has nothing above it to merge into.
  */
 function SectionMenu({ canMergeUp, canMoveUp, canMoveDown, onDuplicate, onMoveUp, onMoveDown, onDelete, onMerge }: {
   canMergeUp: boolean; canMoveUp: boolean; canMoveDown: boolean
@@ -799,7 +799,7 @@ function SectionMenu({ canMergeUp, canMoveUp, canMoveDown, onDuplicate, onMoveUp
 }
 
 /** "Section 1 sur 2" tab sitting on top of the section's first card. */
-/** Height of a section tab — the band overhangs by exactly this much. */
+/** Height of a section tab - the band overhangs by exactly this much. */
 const SECTION_TAB_H = '2rem'
 
 function SectionTab({ index, total, color, welded, onSelect }: {
@@ -828,7 +828,7 @@ function SectionTab({ index, total, color, welded, onSelect }: {
   )
 }
 
-/** "Après la section N — [what happens next]" row, shown between sections. */
+/** "Après la section N - [what happens next]" row, shown between sections. */
 function SectionFooter({ index, total }: { index: number; total: number }) {
   const [action, setAction] = useState('next')
   const options = [
@@ -987,7 +987,7 @@ function EditorRail({ color, sectionIndex, onAddQuestion, onImport, onAddTitle, 
       const hostTop = host.getBoundingClientRect().top
       const secTop  = Math.min(...rects.map(r => r.top))    - hostTop
       const secBot  = Math.max(...rects.map(r => r.bottom)) - hostTop
-      // Anchor under the editor's sticky header — a hardcoded offset let the
+      // Anchor under the editor's sticky header - a hardcoded offset let the
       // rail slide under it and get clipped.
       const header  = document.querySelector('[data-editor-header]')
       const headerBottom = header ? header.getBoundingClientRect().bottom : 0
@@ -999,7 +999,7 @@ function EditorRail({ color, sectionIndex, onAddQuestion, onImport, onAddTitle, 
     // Listen in the CAPTURE phase at document level: scroll does not bubble, and
     // resolving "the" scroll container at mount is unreliable (the content is
     // not laid out yet, so no ancestor looks scrollable and we fell back to
-    // window — which never scrolls here). This catches whichever element moves.
+    // window - which never scrolls here). This catches whichever element moves.
     document.addEventListener('scroll', place, true)
     window.addEventListener('resize', place)
     const obs = new ResizeObserver(place)
@@ -1074,7 +1074,7 @@ function FormHeaderImage({ form, color, onChanged }: {
     try { await formsApi.deleteHeader(form.id); onChanged() } finally { setBusy(false) }
   }
 
-  // The banner is a block of its own, detached from the title card below it —
+  // The banner is a block of its own, detached from the title card below it -
   // it is form-level decoration, not part of the title.
   return (
     <div className={`relative ${hasImage ? 'mb-8' : 'mb-4'}`}>
@@ -1179,7 +1179,7 @@ function BlockRail({ color, overhang, onDragHandle, onDuplicate, onDelete }: {
   overhang?: string
   /** Pointer-down on the grip: starts dragging the block. */
   onDragHandle?: (e: React.PointerEvent) => void
-  /** Omitted where duplicating makes no sense — a section, for one. */
+  /** Omitted where duplicating makes no sense - a section, for one. */
   onDuplicate?: () => void
   onDelete: () => void
 }) {
@@ -1241,7 +1241,7 @@ function BlockRail({ color, overhang, onDragHandle, onDuplicate, onDelete }: {
           first CONVEX, rounding the head's bottom corner (vertical tangent at
           the top), then CONCAVE, landing flush on the spine (vertical tangent
           at the bottom). A single arc would meet the head's vertical edge with
-          a horizontal tangent — the sharp corner this replaces. Together they
+          a horizontal tangent - the sharp corner this replaces. Together they
           give up 44px − 12px = 32px of width over 32px of height. */}
       <div
         className="w-full h-4 shrink-0"

@@ -1,6 +1,6 @@
 // Forms does not publish on the instance bus yet; these only trace locally.
 // When it does, it will go through the core's internal HTTP endpoint
-// (`POST /internal/events/publish`) — the transport the other modules use, and
+// (`POST /internal/events/publish`) - the transport the other modules use, and
 // the one that assumes nothing about the database engine underneath. Not a
 // PostgreSQL NOTIFY: only one of the three supported engines can perform one.
 use uuid::Uuid;

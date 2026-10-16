@@ -4,7 +4,7 @@
  * A block is not a rectangle: when it is active it grows a coloured band on its
  * left, itself made of a wide tool head narrowing into a thin spine along an
  * S-curve. Outlining that with CSS boxes is impossible, so the silhouette is
- * traced as a single SVG path computed from the block's own measurements —
+ * traced as a single SVG path computed from the block's own measurements -
  * whatever the theme radius or the number of tools in the head.
  */
 
@@ -126,7 +126,7 @@ export function ghostPath(g: GhostShape): string {
     `A ${R} ${R} 0 0 1 ${xSpine} ${H - R}`,       // spine's bottom-left corner
     `V ${yEnd}`,                                  // up the spine
     // Going UP the left side. The concave quarter turns anticlockwise on screen
-    // (sweep 0) and the convex one clockwise (sweep 1) — swapping them mirrors
+    // (sweep 0) and the convex one clockwise (sweep 1) - swapping them mirrors
     // the S and the curve reads backwards against the real band.
     `A ${S} ${S} 0 0 0 ${xSpine - S} ${yMid}`,    // concave quarter (spine → mid)
     `A ${S} ${S} 0 0 1 0 ${yHead}`,               // convex quarter (mid → head edge)
@@ -139,7 +139,7 @@ export function ghostPath(g: GhostShape): string {
 export default function BlockGhost({ shape, color }: { shape: GhostShape; color: string }) {
   // A stroke straddles its path, so half of it falls OUTSIDE the outline. Drawn
   // in a viewport the exact size of the shape, that outer half is clipped on
-  // every border — the frame would read 1px thick while the inner S-curve stays
+  // every border - the frame would read 1px thick while the inner S-curve stays
   // 2px. Padding by half the stroke, and shifting the path to match, keeps the
   // thickness identical the whole way round.
   const pad = STROKE / 2

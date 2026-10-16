@@ -8,7 +8,7 @@ import { formsApi, type Form, type FormTheme, type FormTextStyle } from './api'
  * Theme panel, docked to the right of the editor: typography per text role,
  * header image, accent colour and background shade.
  *
- * Replaces the small colour popover — the theme is more than an accent, and a
+ * Replaces the small colour popover - the theme is more than an accent, and a
  * side panel can stay open while the form is edited behind it.
  */
 
@@ -59,7 +59,7 @@ export default function ThemePanel({ form, onClose, onUpdate, onHeaderChanged }:
    * Pinned to the editor's header bar rather than laid out with the content:
    * the panel must be at rest the moment it opens, not slide up into place as
    * the list scrolls. It is measured off `[data-editor-header]`, so it lines up
-   * with the toolbar and stops at the module's right edge — not the window's,
+   * with the toolbar and stops at the module's right edge - not the window's,
    * which sits under the shell dock.
    */
   const [box, setBox] = useState<{ top: number; right: number; height: number } | null>(null)

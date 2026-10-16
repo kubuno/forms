@@ -39,7 +39,7 @@ function GroupLabel({ children }: { children: ReactNode }) {
 }
 
 /**
- * A collapsible group: title, one-line explanation, chevron — separated from
+ * A collapsible group: title, one-line explanation, chevron - separated from
  * its neighbours by a hairline, nothing else.
  *
  * Hand-rolled rather than `@ui`'s Accordion, which boxes every item in a border

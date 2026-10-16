@@ -123,7 +123,7 @@ function ChoiceOptions({ question, color, quizMode, onUpdate, patchOptions }: {
             onDrop={e => { e.preventDefault(); drop(op.id) }}
             style={overId === op.id && dragId.current && dragId.current !== op.id
               ? { boxShadow: `inset 0 2px 0 0 ${color}` } : undefined}>
-            {/* Reorder handle — appears on hover, like the question handle. */}
+            {/* Reorder handle - appears on hover, like the question handle. */}
             <span
               draggable
               onDragStart={() => { dragId.current = op.id }}

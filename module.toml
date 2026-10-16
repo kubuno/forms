@@ -2,7 +2,7 @@
 id            = "forms"
 display_name  = "Forms"
 version       = "0.1.9"
-description   = "Formulaires et sondages — création, collecte de réponses, analyses"
+description   = "Formulaires et sondages - création, collecte de réponses, analyses"
 author        = "Kubuno Contributors"
 license       = "AGPL-3.0"
 homepage_url  = "https://github.com/kubuno/kubuno"
@@ -36,7 +36,7 @@ section  = "main"
 # them editable inside the admin console (scope global → admin only, instance-wide).
 
 # ── Admin panel pages ─────────────────────────────────────────────────────────
-# NOTE: "notify_on_submit"/"notify_email" were REMOVED — forms has no email
+# NOTE: "notify_on_submit"/"notify_email" were REMOVED - forms has no email
 # sending path, so they had no point of application (decorative). Re-add them
 # only once an outbound notification channel exists.
 

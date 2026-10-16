@@ -65,8 +65,8 @@ export const QUESTION_TYPES: QTypeMeta[] = [
   // Média
   { value: 'file_upload', label: 'Téléversement de fichier', Icon: Upload,  group: 'media' },
   { value: 'signature',   label: 'Signature',                Icon: PenLine, group: 'media' },
-  { value: 'grid_radio',    label: 'Grille — choix unique', Icon: Grid3X3, group: 'media', hasOptions: true },
-  { value: 'grid_checkbox', label: 'Grille — cases',        Icon: Grid3X3, group: 'media', hasOptions: true },
+  { value: 'grid_radio',    label: 'Grille - choix unique', Icon: Grid3X3, group: 'media', hasOptions: true },
+  { value: 'grid_checkbox', label: 'Grille - cases',        Icon: Grid3X3, group: 'media', hasOptions: true },
   // Mise en page / contenu
   { value: 'image',            label: 'Image',               Icon: ImageIcon,   group: 'content', isContent: true },
   { value: 'video',            label: 'Vidéo',               Icon: Clapperboard, group: 'content', isContent: true },

@@ -6,7 +6,7 @@ import { FloatingWindow, Dropdown, Spinner } from '@ui'
 import type { CollabPermission, Recipient, CollaboratorEntry } from './api'
 
 // Vendored from office rather than imported: modules never import each other.
-// Forms has no "comment" level — a form is either readable or editable.
+// Forms has no "comment" level - a form is either readable or editable.
 const PERMS: CollabPermission[] = ['edit', 'view']
 
 function initials(name: string): string {
